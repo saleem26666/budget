@@ -67,7 +67,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 21,
+      version: 22,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     ).then((db) async {
@@ -219,6 +219,18 @@ class DatabaseHelper {
       )
     ''');
 
+    // Business cards (scanned; OCR text for master search)
+    await db.execute('''
+      CREATE TABLE business_cards(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        ocr_text TEXT,
+        notes TEXT,
+        image_path TEXT,
+        created_at TEXT
+      )
+    ''');
+
     // Vault Items Table (Passwords)
     await db.execute('''
       CREATE TABLE vault_items(
@@ -279,6 +291,20 @@ class DatabaseHelper {
   }
 
   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 22) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS business_cards(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            ocr_text TEXT,
+            notes TEXT,
+            image_path TEXT,
+            created_at TEXT
+          )
+        ''');
+      } catch (_) {}
+    }
     if (oldVersion < 19) {
       try {
         final txCols = await db.rawQuery('PRAGMA table_info(transactions)');
@@ -439,16 +465,22 @@ class DatabaseHelper {
   Future<int> deleteTransaction(int id) => delete('transactions', id);
 
   // ============== ACCOUNTS ==============
-  Future<List<Map<String, dynamic>>> getAccounts() async =>
-      queryAllRows('accounts');
+  Future<List<Map<String, dynamic>>> getAccounts() async {
+    final db = await instance.database;
+    return await db.query('accounts', orderBy: 'name COLLATE NOCASE ASC');
+  }
+
   Future<int> addAccount(Map<String, dynamic> row) => insert('accounts', row);
   Future<int> updateAccount(int id, Map<String, dynamic> row) =>
       update('accounts', id, row);
   Future<int> deleteAccount(int id) => delete('accounts', id);
 
   // ============== CATEGORIES ==============
-  Future<List<Map<String, dynamic>>> getCategories() async =>
-      queryAllRows('categories');
+  Future<List<Map<String, dynamic>>> getCategories() async {
+    final db = await instance.database;
+    return await db.query('categories', orderBy: 'name COLLATE NOCASE ASC');
+  }
+
   Future<int> addCategory(Map<String, dynamic> row) =>
       insert('categories', row);
   Future<int> updateCategory(int id, Map<String, dynamic> row) =>
@@ -488,6 +520,33 @@ class DatabaseHelper {
   Future<int> updateFamilyVault(int id, Map<String, dynamic> row) =>
       update('family_vault', id, row);
   Future<int> deleteFamilyVault(int id) => delete('family_vault', id);
+
+  // ============== BUSINESS CARDS ==============
+  Future<List<Map<String, dynamic>>> getBusinessCards() async =>
+      queryAllRows('business_cards');
+  Future<int> addBusinessCard(Map<String, dynamic> row) =>
+      insert('business_cards', row);
+  Future<int> updateBusinessCard(int id, Map<String, dynamic> row) =>
+      update('business_cards', id, row);
+  Future<int> deleteBusinessCard(int id) => delete('business_cards', id);
+
+  /// Master search: matches title, notes, or any OCR text on the card.
+  Future<List<Map<String, dynamic>>> searchBusinessCards(String query) async {
+    final db = await instance.database;
+    final q = query.trim();
+    if (q.isEmpty) {
+      return await db.query('business_cards', orderBy: 'id DESC');
+    }
+    final pattern = '%${q.toLowerCase()}%';
+    return await db.rawQuery(
+      '''SELECT * FROM business_cards
+         WHERE lower(ifnull(title, '')) LIKE ?
+            OR lower(ifnull(notes, '')) LIKE ?
+            OR lower(ifnull(ocr_text, '')) LIKE ?
+         ORDER BY id DESC''',
+      [pattern, pattern, pattern],
+    );
+  }
 
   // ============== VAULT ITEMS ==============
   Future<List<Map<String, dynamic>>> getVaultItems() async =>
@@ -531,6 +590,7 @@ class DatabaseHelper {
     await db.delete('notes');
     await db.delete('cards');
     await db.delete('family_vault');
+    await db.delete('business_cards');
     await db.delete('diary');
     await db.delete('vault_items');
     await db.delete('investments');

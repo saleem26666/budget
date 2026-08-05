@@ -1,3 +1,7 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -35,6 +39,8 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -51,15 +57,24 @@ flutter {
     source = "../.."
 }
 
-// Flutter always copies as app-release.apk; also emit budget_projuly20.apk.
+// Copy release APKs as BudgetPro_v<version>_<ddMMMyy>[_abi].apk
 afterEvaluate {
     tasks.named("assembleRelease").configure {
         doLast {
             val apkDir = layout.buildDirectory.dir("outputs/flutter-apk").get().asFile
-            val src = File(apkDir, "app-release.apk")
-            val dst = File(apkDir, "budget_projuly20.apk")
-            if (src.exists()) {
-                src.copyTo(dst, overwrite = true)
+            val shortDate = SimpleDateFormat("ddMMMyy", Locale.US).format(Date())
+            val ver = flutter.versionName
+            val copies = listOf(
+                "app-release.apk" to "BudgetPro_v${ver}_$shortDate.apk",
+                "app-arm64-v8a-release.apk" to "BudgetPro_v${ver}_${shortDate}_arm64.apk",
+                "app-armeabi-v7a-release.apk" to "BudgetPro_v${ver}_${shortDate}_arm32.apk",
+                "app-x86_64-release.apk" to "BudgetPro_v${ver}_${shortDate}_x86_64.apk",
+            )
+            for ((srcName, dstName) in copies) {
+                val src = File(apkDir, srcName)
+                if (src.exists()) {
+                    src.copyTo(File(apkDir, dstName), overwrite = true)
+                }
             }
         }
     }

@@ -6,11 +6,10 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 
 import '../config/google_oauth_config.dart';
+import 'backup_service.dart';
 
 /// Optional cloud sync — only files created by this app (drive.file scope).
 class GoogleDriveBackupService {
-  static const backupFileName = 'BudgetPro_FullBackup.budgetpro';
-
   static final GoogleSignIn _signIn = GoogleSignIn(
     scopes: [drive.DriveApi.driveFileScope],
     serverClientId: GoogleOAuthConfig.webClientId,
@@ -63,19 +62,21 @@ class GoogleDriveBackupService {
     return drive.DriveApi(client);
   }
 
-  static Future<drive.File?> _findBackup(drive.DriveApi api) async {
+  /// Newest Budget Pro backup on Drive (dated or legacy name).
+  static Future<drive.File?> _findLatestBackup(drive.DriveApi api) async {
     final list = await api.files.list(
-      q: "name = '$backupFileName' and trashed = false",
+      q: "name contains 'BudgetPro_' and name contains '.budgetpro' and trashed = false",
       spaces: 'drive',
       $fields: 'files(id, name, modifiedTime)',
-      pageSize: 1,
+      orderBy: 'modifiedTime desc',
+      pageSize: 20,
     );
     final files = list.files;
     if (files == null || files.isEmpty) return null;
     return files.first;
   }
 
-  /// Upload or overwrite backup on Google Drive.
+  /// Upload a new dated backup file on Google Drive.
   static Future<DateTime?> uploadBackup(String jsonContent) async {
     final api = await _api();
     final bytes = utf8.encode(jsonContent);
@@ -85,29 +86,20 @@ class GoogleDriveBackupService {
       contentType: 'application/octet-stream',
     );
 
-    final existing = await _findBackup(api);
-    drive.File result;
-    if (existing?.id != null) {
-      result = await api.files.update(
-        drive.File()..name = backupFileName,
-        existing!.id!,
-        uploadMedia: media,
-      );
-    } else {
-      result = await api.files.create(
-        drive.File()
-          ..name = backupFileName
-          ..mimeType = 'application/octet-stream',
-        uploadMedia: media,
-      );
-    }
+    final fileName = BackupService.timestampedBackupFileName();
+    final result = await api.files.create(
+      drive.File()
+        ..name = fileName
+        ..mimeType = 'application/octet-stream',
+      uploadMedia: media,
+    );
     return result.modifiedTime;
   }
 
-  /// Download backup JSON from Google Drive.
+  /// Download the latest backup JSON from Google Drive.
   static Future<String> downloadBackup() async {
     final api = await _api();
-    final file = await _findBackup(api);
+    final file = await _findLatestBackup(api);
     if (file?.id == null) {
       throw 'No backup found on Google Drive. Sync a backup first.';
     }

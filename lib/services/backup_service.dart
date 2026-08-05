@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
@@ -15,6 +16,17 @@ class BackupService {
   static const String _defaultProfile = 'default';
   static const String _profilesKey = 'bp_profiles';
   static const String _activeProfileKey = 'bp_active_profile';
+
+  /// e.g. BudgetPro_FullBackup_04Aug26_1045.budgetpro
+  static String timestampedBackupFileName({String label = 'FullBackup'}) {
+    final safe = label
+        .trim()
+        .replaceAll(RegExp(r'\s+'), '_')
+        .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '');
+    final stamp = DateFormat('ddMMMyy_HHmm').format(DateTime.now());
+    final part = safe.isEmpty ? 'Backup' : safe;
+    return 'BudgetPro_${part}_$stamp.budgetpro';
+  }
 
   static String _profilePrefKey(String profileId, String key) =>
       '${profileId}_$key';
@@ -117,6 +129,12 @@ class BackupService {
     final familyVault = (await db.query('family_vault'))
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
+    List<Map<String, dynamic>> businessCards = [];
+    try {
+      businessCards = (await db.query('business_cards'))
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    } catch (_) {}
     final accounts = (await db.query('accounts'))
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
@@ -223,6 +241,18 @@ class BackupService {
       } catch (_) {}
     }
 
+    for (final card in businessCards) {
+      try {
+        if (card['image_path'] != null &&
+            card['image_path'].toString().isNotEmpty) {
+          final imgFile = File(card['image_path']);
+          if (await imgFile.exists()) {
+            card['image_base64'] = base64Encode(await imgFile.readAsBytes());
+          }
+        }
+      } catch (_) {}
+    }
+
     backupData['profile_id'] = profileId;
     backupData['profile_name'] = profileName;
     backupData['transactions'] = transactions;
@@ -231,6 +261,7 @@ class BackupService {
     backupData['notes'] = notes;
     backupData['cards'] = cards;
     backupData['family_vault'] = familyVault;
+    backupData['business_cards'] = businessCards;
     backupData['diary'] = diaryEntries;
     backupData['vault_items'] = vaultItems;
     backupData['investments'] = investments;
@@ -514,6 +545,7 @@ class BackupService {
       'diary',
       'family_vault',
       'cards',
+      'business_cards',
       'notes',
       'vault_items',
       'investments',
@@ -545,6 +577,14 @@ class BackupService {
             }
             item.remove('front_image_base64');
             item.remove('back_image_base64');
+          } else if (table == 'business_cards') {
+            if (item['image_base64'] != null) {
+              final imgFile = File(
+                  '${imagesDir.path}/biz_card_${DateTime.now().millisecondsSinceEpoch}.jpg');
+              await imgFile.writeAsBytes(base64Decode(item['image_base64']));
+              item['image_path'] = imgFile.path;
+            }
+            item.remove('image_base64');
           }
           item.remove('id');
           await DatabaseHelper.instance.insert(table, item);

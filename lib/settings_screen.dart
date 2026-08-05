@@ -14,6 +14,7 @@ import 'services/backup_service.dart';
 import 'services/currency_service.dart';
 import 'services/google_drive_backup_service.dart';
 import 'database_helper.dart';
+import 'utils/category_utils.dart';
 import 'utils/vault_pin_prefs.dart';
 import 'widgets/about_app_card.dart';
 
@@ -256,8 +257,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final key = '${widget.activeProfileId}_notebook_categories';
     String? cats = prefs.getString(key) ?? prefs.getString('notebook_categories');
     if (cats != null) {
-      setState(() => _notebookCategories =
-          List<Map<String, dynamic>>.from(jsonDecode(cats)));
+      _notebookCategories =
+          List<Map<String, dynamic>>.from(jsonDecode(cats));
     }
     if (_notebookCategories.isEmpty) {
       _notebookCategories = [
@@ -265,8 +266,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         {'id': '2', 'name': 'Useful Links'},
       ];
       await prefs.setString(key, jsonEncode(_notebookCategories));
-      setState(() {});
     }
+    _notebookCategories.sort(compareNameMaps);
+    if (mounted) setState(() {});
   }
 
   Future<void> restoreFromPath(String filePath) async {
@@ -448,6 +450,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             'id': DateTime.now().millisecondsSinceEpoch,
                             'name': catC.text
                           });
+                          _notebookCategories.sort(compareNameMaps);
                           await prefs.setString(
                               key, jsonEncode(_notebookCategories));
                           setState(() {});
@@ -469,6 +472,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _shareBackup(BuildContext context) async {
     try {
       final fullBackup = await BackupService.buildAllProfilesBackupJson();
+      final fileName = BackupService.timestampedBackupFileName();
 
       if (kIsWeb) {
         await Clipboard.setData(ClipboardData(text: fullBackup));
@@ -478,7 +482,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
         String? outputFile = await FilePicker.platform.saveFile(
             dialogTitle: 'Save Budget Pro Backup',
-            fileName: 'BudgetPro_FullBackup.budgetpro');
+            fileName: fileName);
         if (outputFile != null) {
           await File(outputFile).writeAsString(fullBackup);
           if (mounted)
@@ -487,11 +491,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       } else {
         final directory = await getTemporaryDirectory();
-        final file = File('${directory.path}/BudgetPro_FullBackup.budgetpro');
+        final file = File('${directory.path}/$fileName');
         await file.writeAsString(fullBackup);
         await ShareFileHelper.share(
           path: file.path,
-          fileName: 'BudgetPro_FullBackup.budgetpro',
+          fileName: fileName,
           mimeType: 'application/octet-stream',
           text: 'Budget Pro Backup (all profiles) — open in Budget Pro to restore',
         );

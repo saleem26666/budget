@@ -23,9 +23,14 @@ Future<void> showTransactionSheet({
   Map<String, dynamic>? editTx,
   List<String>? initialImages,
   List<String> familyMembers = const [],
+  /// Create account in DB; return saved row (with name) or null on failure.
+  Future<Map<String, dynamic>?> Function(String name, double openingBalance)?
+      onCreateAccount,
   required Future<void> Function(Map<String, dynamic> data) onSave,
 }) {
   final homeCode = CurrencyService.instance.code;
+  final workingAccounts = List<Map<String, dynamic>>.from(accounts);
+  const addAccountSentinel = '__add_new_account__';
   final titleC = TextEditingController(text: editTx?['title']?.toString() ?? '');
   final descC = TextEditingController(text: editTx?['desc']?.toString() ?? '');
 
@@ -51,9 +56,13 @@ Future<void> showTransactionSheet({
 
   String type = editTx?['type']?.toString() ?? 'Expense';
   String acc = editTx?['account']?.toString() ??
-      (accounts.isNotEmpty ? accounts.first['name'].toString() : '');
+      (workingAccounts.isNotEmpty
+          ? workingAccounts.first['name'].toString()
+          : '');
   String toAcc = editTx?['toAccount']?.toString() ??
-      (accounts.length > 1 ? accounts[1]['name'].toString() : '');
+      (workingAccounts.length > 1
+          ? workingAccounts[1]['name'].toString()
+          : '');
   String cat = editTx?['category']?.toString() ??
       (categories.isNotEmpty ? categories.first['name'].toString() : 'General');
   String? subCat = editTx?['sub_category']?.toString();
@@ -128,22 +137,128 @@ Future<void> showTransactionSheet({
           subCat = null;
         }
 
-        final accountNames = accounts
+        final accountNames = workingAccounts
             .map((e) => e['name'].toString())
             .where((n) => n.isNotEmpty)
             .toSet()
-            .toList();
+            .toList()
+          ..sort(compareNames);
         final categoryNames = categories
             .map((e) => e['name'].toString())
             .where((n) => n.isNotEmpty)
             .toSet()
-            .toList();
+            .toList()
+          ..sort(compareNames);
+        availableSubCats.sort(compareNames);
         if (!accountNames.contains(acc) && accountNames.isNotEmpty) {
           acc = accountNames.first;
         }
         if (!categoryNames.contains(cat) && categoryNames.isNotEmpty) {
           cat = categoryNames.first;
         }
+
+        Future<void> createAccountAndSelect(
+            {required bool forToAccount}) async {
+          if (onCreateAccount == null) return;
+          final nameC = TextEditingController();
+          final balC = TextEditingController(text: '0');
+          final created = await showDialog<Map<String, dynamic>>(
+            context: context,
+            builder: (dCtx) => AlertDialog(
+              title: const Text('New account'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameC,
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      labelText: 'Account name',
+                      hintText: 'e.g. JazzCash, HBL',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: balC,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Opening balance',
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dCtx),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final name = nameC.text.trim();
+                    if (name.isEmpty) return;
+                    final exists = workingAccounts.any((a) =>
+                        a['name'].toString().toLowerCase() ==
+                        name.toLowerCase());
+                    if (exists) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Account "$name" already exists'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                      return;
+                    }
+                    final bal = double.tryParse(balC.text.trim()) ?? 0;
+                    final row = await onCreateAccount(name, bal);
+                    if (row != null && dCtx.mounted) {
+                      Navigator.pop(dCtx, row);
+                    }
+                  },
+                  child: const Text('Create'),
+                ),
+              ],
+            ),
+          );
+          if (created == null) {
+            setSt(() {}); // reset dropdown selection
+            return;
+          }
+          setSt(() {
+            workingAccounts.add(created);
+            final name = created['name'].toString();
+            if (forToAccount) {
+              toAcc = name;
+            } else {
+              acc = name;
+            }
+          });
+        }
+
+        List<DropdownMenuItem<String>> accountMenuItems() => [
+              ...accountNames.map(
+                (e) => DropdownMenuItem(value: e, child: Text(e)),
+              ),
+              if (onCreateAccount != null)
+                const DropdownMenuItem(
+                  value: addAccountSentinel,
+                  child: Row(
+                    children: [
+                      Icon(Icons.add_circle_outline,
+                          size: 20, color: AppTheme.primary),
+                      SizedBox(width: 8),
+                      Text(
+                        'Add new account',
+                        style: TextStyle(
+                          color: AppTheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ];
 
         Future<void> pickReceiptScan() async {
           if (images.length >= 5) return;
@@ -426,23 +541,30 @@ Future<void> showTransactionSheet({
                   const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
                     value: accountNames.contains(acc) ? acc : null,
-                    items: accountNames
-                        .map((e) => DropdownMenuItem(
-                            value: e, child: Text(e)))
-                        .toList(),
-                    onChanged: (v) => setSt(() => acc = v ?? acc),
+                    items: accountMenuItems(),
+                    onChanged: (v) async {
+                      if (v == addAccountSentinel) {
+                        await createAccountAndSelect(forToAccount: false);
+                      } else if (v != null) {
+                        setSt(() => acc = v);
+                      }
+                    },
                     decoration: const InputDecoration(labelText: 'Account'),
                   ),
                   if (type == 'Transfer') ...[
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
                       value: accountNames.contains(toAcc) ? toAcc : null,
-                      items: accountNames
-                          .map((e) => DropdownMenuItem(
-                              value: e, child: Text(e)))
-                          .toList(),
-                      onChanged: (v) => setSt(() => toAcc = v ?? toAcc),
-                      decoration: const InputDecoration(labelText: 'To Account'),
+                      items: accountMenuItems(),
+                      onChanged: (v) async {
+                        if (v == addAccountSentinel) {
+                          await createAccountAndSelect(forToAccount: true);
+                        } else if (v != null) {
+                          setSt(() => toAcc = v);
+                        }
+                      },
+                      decoration:
+                          const InputDecoration(labelText: 'To Account'),
                     ),
                   ],
                   const SizedBox(height: 10),

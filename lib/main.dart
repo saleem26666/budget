@@ -25,6 +25,7 @@ import 'services/backup_service.dart';
 import 'services/budget_alert_service.dart';
 import 'services/currency_service.dart';
 import 'settings_screen.dart';
+import 'utils/category_utils.dart';
 import 'utils/image_helper.dart';
 import 'utils/profile_templates.dart';
 import 'utils/share_file_helper.dart';
@@ -101,6 +102,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   String _txSearchQuery = "";
   final TextEditingController _txSearchController = TextEditingController();
+  bool _showWalletSearch = false;
 
   @override
   void initState() {
@@ -249,8 +251,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     try {
       final backupJson =
           await BackupService.buildFullBackupJson(profileId: profileId);
-      final fileName =
-          'BudgetPro_${profileName.replaceAll(' ', '_')}_Profile.budgetpro';
+      final fileName = BackupService.timestampedBackupFileName(
+        label: '${profileName}_Profile',
+      );
       if (kIsWeb) {
         await Clipboard.setData(ClipboardData(text: backupJson));
         if (mounted) {
@@ -833,6 +836,191 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return balances;
   }
 
+  List<Map<String, dynamic>> _transactionsForAccount(String accountName) {
+    final list = _transactions.where((t) {
+      final type = t['type']?.toString() ?? '';
+      final acc = t['account']?.toString() ?? '';
+      final toAcc = t['toAccount']?.toString() ?? '';
+      if (type == 'Transfer') {
+        return acc == accountName || toAcc == accountName;
+      }
+      return acc == accountName;
+    }).toList();
+    list.sort((a, b) {
+      try {
+        return DateTime.parse(b['date'].toString())
+            .compareTo(DateTime.parse(a['date'].toString()));
+      } catch (_) {
+        return 0;
+      }
+    });
+    return list;
+  }
+
+  void _openAccountDetail(String accountName) {
+    Map<String, dynamic>? acc;
+    for (final a in _accounts) {
+      if (a['name']?.toString() == accountName) {
+        acc = a;
+        break;
+      }
+    }
+    final opening = (acc?['initial_balance'] as num?)?.toDouble() ?? 0.0;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (sheetCtx) {
+        final balance = _liveAccountBalances()[accountName] ?? 0.0;
+        final txs = _transactionsForAccount(accountName);
+        final income = txs
+            .where((t) => t['type'] == 'Income')
+            .fold<double>(
+                0, (s, t) => s + ((t['amount'] as num?)?.toDouble() ?? 0));
+        final expense = txs
+            .where((t) => t['type'] == 'Expense')
+            .fold<double>(
+                0, (s, t) => s + ((t['amount'] as num?)?.toDouble() ?? 0));
+        final height = MediaQuery.of(sheetCtx).size.height * 0.92;
+
+        return SizedBox(
+          height: height,
+          child: Column(
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 4, 0),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(sheetCtx),
+                    ),
+                    Expanded(
+                      child: Text(
+                        accountName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    if (acc != null)
+                      IconButton(
+                        tooltip: 'Edit account',
+                        icon: const Icon(Icons.edit_outlined),
+                        onPressed: () {
+                          Navigator.pop(sheetCtx);
+                          _editAccountDialog(acc);
+                        },
+                      ),
+                  ],
+                ),
+              ),
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [AppTheme.primary, AppTheme.primaryDark],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Balance',
+                        style: TextStyle(color: Colors.white70, fontSize: 12)),
+                    const SizedBox(height: 2),
+                    Text(
+                      CurrencyService.fmt(balance),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 26,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'In +${CurrencyService.fmt(income)}',
+                            style: const TextStyle(
+                                color: Color(0xFFA7F3D0), fontSize: 12),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            'Out -${CurrencyService.fmt(expense)}',
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(
+                                color: Color(0xFFFCA5A5), fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Opening ${CurrencyService.fmt(opening)}',
+                      style: const TextStyle(
+                          color: Colors.white60, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '${txs.length} transaction${txs.length == 1 ? '' : 's'}',
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: txs.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No transactions in this account',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: txs.length,
+                        itemBuilder: (_, i) => _buildTxTile(txs[i]),
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   void _touchUserActivity() {
     _lastUserActivity = DateTime.now();
     _scheduleIdleLock();
@@ -907,6 +1095,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         } else {
           _diaryCategories = loadedDCats;
         }
+        _diaryCategories.sort(compareNameMaps);
 
         _calculateTotals();
         _budgetAlerts = BudgetAlertService.evaluate(
@@ -1422,9 +1611,50 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return Column(
       children: [
         _buildBalanceCard(),
+        if (_showWalletSearch)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 2, 12, 0),
+            child: TextField(
+              controller: _txSearchController,
+              autofocus: true,
+              style: const TextStyle(fontSize: 14),
+              decoration: InputDecoration(
+                hintText: 'Search title, account, amount...',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Full search',
+                      icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (c) => const MasterSearchScreen()),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      onPressed: () => setState(() {
+                        _showWalletSearch = false;
+                        _txSearchQuery = '';
+                        _txSearchController.clear();
+                      }),
+                    ),
+                  ],
+                ),
+                isDense: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+              onChanged: (v) => setState(() => _txSearchQuery = v),
+            ),
+          ),
         if (_budgetAlerts.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
             child: InkWell(
               onTap: () async {
                 await showModalBottomSheet(
@@ -1459,14 +1689,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   ),
                 );
               },
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
               child: Container(
-                padding: const EdgeInsets.all(12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
                   color: _budgetAlerts.any((a) => a.isOverBudget)
                       ? AppTheme.expense.withValues(alpha: 0.1)
                       : Colors.orange.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                   border: Border.all(
                     color: _budgetAlerts.any((a) => a.isOverBudget)
                         ? AppTheme.expense.withValues(alpha: 0.4)
@@ -1477,97 +1708,108 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   children: [
                     Icon(
                       Icons.warning_amber_rounded,
+                      size: 20,
                       color: _budgetAlerts.any((a) => a.isOverBudget)
                           ? AppTheme.expense
                           : Colors.orange,
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         '${_budgetAlerts.length} budget alert(s) — tap to view',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 13),
                       ),
                     ),
-                    const Icon(Icons.chevron_right),
+                    const Icon(Icons.chevron_right, size: 20),
                   ],
                 ),
               ),
             ),
           ),
-        Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
-            child: TextField(
-                controller: _txSearchController,
-                decoration: InputDecoration(
-                    hintText: "Master Search (Title, Desc, Account, Amount)...",
-                    prefixIcon: const Icon(Icons.search),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                    contentPadding: EdgeInsets.zero),
-                onChanged: (v) => setState(() => _txSearchQuery = v))),
         TableCalendar(
           firstDay: DateTime.utc(2020),
           lastDay: DateTime.utc(2030),
           focusedDay: _focusedDay,
           calendarFormat: CalendarFormat.week,
+          headerVisible: false,
+          rowHeight: 40,
+          daysOfWeekHeight: 18,
           selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
           onDaySelected: (sel, foc) => setState(() {
             _selectedDay = sel;
             _focusedDay = foc;
+            _txSearchQuery = '';
+            _txSearchController.clear();
           }),
           calendarStyle: const CalendarStyle(
-              selectedDecoration:
-                  BoxDecoration(color: Colors.indigo, shape: BoxShape.circle),
-              todayDecoration: BoxDecoration(
-                  color: Colors.indigoAccent, shape: BoxShape.circle)),
+            cellMargin: EdgeInsets.all(2),
+            selectedDecoration:
+                BoxDecoration(color: Colors.indigo, shape: BoxShape.circle),
+            todayDecoration: BoxDecoration(
+                color: Colors.indigoAccent, shape: BoxShape.circle),
+          ),
+          daysOfWeekStyle: DaysOfWeekStyle(
+            weekdayStyle: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            weekendStyle: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+          padding: const EdgeInsets.fromLTRB(16, 2, 16, 2),
           child: Row(
             children: [
               Text(
-                _txSearchQuery.trim().isEmpty
-                    ? '${filtered.length} on this day'
-                    : '${filtered.length} found',
+                DateFormat('EEE, dd MMM').format(_selectedDay),
                 style: TextStyle(
                   fontSize: 13,
-                  color: Colors.grey.shade700,
+                  color: Colors.grey.shade800,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '· ${filtered.length}',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey.shade600,
                   fontWeight: FontWeight.w500,
                 ),
               ),
               const Spacer(),
-              FilledButton.icon(
-                onPressed: () => _showAddTxModal(),
-                icon: const Icon(Icons.add_rounded, size: 20),
-                label: const Text('Add'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.primary,
-                  visualDensity: VisualDensity.compact,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              if (_txSearchQuery.isNotEmpty)
+                TextButton(
+                  onPressed: () => setState(() {
+                    _txSearchQuery = '';
+                    _txSearchController.clear();
+                  }),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('Clear search', style: TextStyle(fontSize: 12)),
                 ),
-              ),
             ],
           ),
         ),
         Expanded(
             child: filtered.isEmpty
                 ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text("No transactions"),
-                        const SizedBox(height: 12),
-                        OutlinedButton.icon(
-                          onPressed: () => _showAddTxModal(),
-                          icon: const Icon(Icons.add_rounded),
-                          label: const Text('Add transaction'),
-                        ),
-                      ],
+                    child: Text(
+                      _txSearchQuery.trim().isEmpty
+                          ? 'No transactions\nUse + above to add'
+                          : 'No matches',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.grey.shade500,
+                        fontSize: 14,
+                        height: 1.4,
+                      ),
                     ),
                   )
                 : ListView.builder(
-                    padding: const EdgeInsets.only(bottom: 24),
+                    padding: const EdgeInsets.fromLTRB(0, 0, 0, 16),
                     itemCount: filtered.length,
                     itemBuilder: (ctx, i) => _buildTxTile(filtered[i]))),
       ],
@@ -1576,68 +1818,80 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   Widget _buildBalanceCard() {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      padding: const EdgeInsets.all(24),
-      decoration: AppTheme.balanceCardDecoration,
+      margin: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: AppTheme.balanceCardDecoration.copyWith(
+        borderRadius: BorderRadius.circular(18),
+      ),
       child: Column(
         children: [
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(Icons.account_balance_wallet_outlined,
-                    color: Colors.white, size: 22),
+                    color: Colors.white, size: 18),
               ),
-              const SizedBox(width: 12),
-              const Text('Total Balance',
-                  style: TextStyle(color: Colors.white70, fontSize: 14)),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text('Total Balance',
+                    style: TextStyle(color: Colors.white70, fontSize: 12)),
+              ),
+              Text(
+                CurrencyService.fmt(_balance),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: -0.4,
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 12),
-          Text(
-            CurrencyService.fmt(_balance),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 36,
-              fontWeight: FontWeight.bold,
-              letterSpacing: -0.5,
-            ),
-          ),
           if (_accounts.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             SizedBox(
-              height: 34,
+              height: 28,
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: _liveAccountBalances().entries.map((e) {
-                  return Container(
-                    margin: const EdgeInsets.only(right: 8),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${e.key}: ${CurrencyService.instance.formatNumber(e.value)}',
-                      style: const TextStyle(
-                          color: Colors.white, fontSize: 12),
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => _openAccountDetail(e.key),
+                        borderRadius: BorderRadius.circular(16),
+                        child: Ink(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            '${e.key}: ${CurrencyService.instance.formatNumber(e.value)}',
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 11),
+                          ),
+                        ),
+                      ),
                     ),
                   );
                 }).toList(),
               ),
             ),
           ],
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           Container(
-            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
               children: [
@@ -1651,7 +1905,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 ),
                 Container(
                   width: 1,
-                  height: 36,
+                  height: 28,
                   color: Colors.white24,
                 ),
                 Expanded(
@@ -1681,16 +1935,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: color, size: 16),
-            const SizedBox(width: 4),
+            Icon(icon, color: color, size: 14),
+            const SizedBox(width: 3),
             Text(label,
-                style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                style: const TextStyle(color: Colors.white70, fontSize: 11)),
           ],
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 2),
         Text(value,
             style: TextStyle(
-                color: color, fontWeight: FontWeight.bold, fontSize: 16)),
+                color: color, fontWeight: FontWeight.bold, fontSize: 13)),
       ],
     );
   }
@@ -1729,28 +1983,39 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
       child: Padding(
-        padding: const EdgeInsets.all(8.0),
+        padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
         child: Column(
           children: [
             ListTile(
+              dense: true,
+              visualDensity: const VisualDensity(horizontal: 0, vertical: -2),
               contentPadding: EdgeInsets.zero,
               leading: CircleAvatar(
+                  radius: 18,
                   backgroundColor: c.withOpacity(0.1),
-                  child: Icon(icon, color: c)),
+                  child: Icon(icon, color: c, size: 18)),
               title: Text(tx['title'],
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 14)),
               subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(isTr
-                        ? "${tx['account']} -> ${tx['toAccount']} ($catDisplay)"
-                        : "${tx['account']} | $catDisplay"),
+                    Text(
+                      isTr
+                          ? "${tx['account']} -> ${tx['toAccount']} ($catDisplay)"
+                          : "${tx['account']} | $catDisplay",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                    ),
                     if (dateStr.isNotEmpty)
                       Text(dateStr,
                           style: TextStyle(
-                              fontSize: 11, color: Colors.grey.shade600)),
+                              fontSize: 10, color: Colors.grey.shade600)),
                     Builder(builder: (_) {
                       final lines = <Widget>[];
                       final fxCode = tx['fx_currency']?.toString() ?? '';
@@ -1763,7 +2028,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         lines.add(Text(
                           '$fxCode ${CurrencyService.instance.formatNumber(fxNum)} → ${CurrencyService.fmt((tx['amount'] as num).toDouble())}',
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 10,
                             color: Colors.teal.shade700,
                             fontWeight: FontWeight.w500,
                           ),
@@ -1774,7 +2039,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         lines.add(Text(
                           '👤 $member',
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 10,
                             color: Colors.indigo.shade600,
                           ),
                         ));
@@ -1787,15 +2052,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     }),
                     if (desc.isNotEmpty)
                       Text(desc,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                               fontStyle: FontStyle.italic,
-                              fontSize: 12,
+                              fontSize: 11,
                               color: Colors.grey))
                   ]),
               trailing: Text(
                   "${isInc ? '+' : (isTr ? '' : '-')} ${CurrencyService.fmt((tx['amount'] as num).toDouble())}",
                   style: TextStyle(
-                      color: c, fontWeight: FontWeight.bold, fontSize: 15)),
+                      color: c, fontWeight: FontWeight.bold, fontSize: 14)),
               onTap: () => _showAddTxModal(editTx: tx),
               onLongPress: () {
                 _confirmDelete(() async {
@@ -1805,8 +2072,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             ),
             if (images.isNotEmpty)
               Container(
-                  height: 70,
-                  margin: const EdgeInsets.only(top: 5),
+                  height: 56,
+                  margin: const EdgeInsets.only(top: 2, bottom: 4),
                   child: ListView.builder(
                       scrollDirection: Axis.horizontal,
                       itemCount: images.length,
@@ -1817,21 +2084,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                                   builder: (_) =>
                                       FullScreenImage(imagePath: images[idx]))),
                           child: Padding(
-                              padding: const EdgeInsets.only(right: 8.0),
+                              padding: const EdgeInsets.only(right: 6.0),
                               child: Hero(
                                   tag: images[idx],
                                   child: ClipRRect(
                                       borderRadius: BorderRadius.circular(8),
                                       child: kIsWeb
                                           ? Image.network(images[idx],
-                                              width: 70,
-                                              height: 70,
+                                              width: 56,
+                                              height: 56,
                                               fit: BoxFit.cover,
                                               errorBuilder: (c, e, s) =>
                                                   const Icon(Icons.image))
                                           : Image.file(File(images[idx]),
-                                              width: 70,
-                                              height: 70,
+                                              width: 56,
+                                              height: 56,
                                               fit: BoxFit.cover,
                                               errorBuilder: (c, e, s) =>
                                                   const Icon(
@@ -1948,6 +2215,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       onPressed: () async {
                         setState(() {
                           _diaryCategories.add({'name': nameC.text});
+                          _diaryCategories.sort(compareNameMaps);
                         });
                         final prefs = await SharedPreferences.getInstance();
                         await prefs.setString(
@@ -2022,6 +2290,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       editTx: editTx?.cast<String, dynamic>(),
       initialImages: initialImages,
       familyMembers: members,
+      onCreateAccount: (name, openingBalance) async {
+        final id = await DatabaseHelper.instance.addAccount({
+          'name': name,
+          'initial_balance': openingBalance,
+        });
+        await _loadAllData();
+        return {
+          'id': id,
+          'name': name,
+          'initial_balance': openingBalance,
+        };
+      },
       onSave: (data) async {
         if (editTx == null) {
           await DatabaseHelper.instance.addTransaction(data);
@@ -2151,12 +2431,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 onPressed: () => _showAddTxModal(),
               ),
               IconButton(
-                icon: const Icon(Icons.search_rounded),
-                tooltip: 'Search',
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (c) => const MasterSearchScreen()),
-                ),
+                icon: Icon(_showWalletSearch
+                    ? Icons.search_off_rounded
+                    : Icons.search_rounded),
+                tooltip: _showWalletSearch ? 'Hide search' : 'Search',
+                onPressed: () {
+                  if (_showWalletSearch) {
+                    setState(() {
+                      _showWalletSearch = false;
+                      _txSearchQuery = '';
+                      _txSearchController.clear();
+                    });
+                  } else {
+                    setState(() => _showWalletSearch = true);
+                  }
+                },
               ),
             ],
             IconButton(

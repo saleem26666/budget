@@ -14,6 +14,7 @@ class AdvancedReports extends StatefulWidget {
   final List<Map<String, dynamic>> accounts;
   final List<Map<String, dynamic>> categories;
   final List<Map<String, dynamic>> diaryEntries;
+  final String? initialAccount;
 
   // نیا اضافہ: ایڈٹ فنکشن کا لنک
   final Function(Map)? onEditTransaction;
@@ -24,6 +25,7 @@ class AdvancedReports extends StatefulWidget {
     required this.accounts,
     required this.categories,
     required this.diaryEntries,
+    this.initialAccount,
     this.onEditTransaction, // نیا اضافہ
   });
 
@@ -32,12 +34,20 @@ class AdvancedReports extends StatefulWidget {
 }
 
 class _AdvancedReportsState extends State<AdvancedReports> {
-  String _selectedAccount = "All Accounts";
+  late String _selectedAccount;
   String _selectedCategory = "All Categories";
   String _selectedSubCategory = "All Sub-categories";
   DateTimeRange? _selectedDateRange;
   String _searchQuery = "";
   final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialAccount?.trim();
+    _selectedAccount =
+        (initial != null && initial.isNotEmpty) ? initial : "All Accounts";
+  }
 
   String _safeGetDescription(Map t) {
     return (t['desc'] ?? t['description'] ?? "").toString();
@@ -52,7 +62,7 @@ class _AdvancedReportsState extends State<AdvancedReports> {
           (c) => c?['name']?.toString() == _selectedCategory,
           orElse: () => null,
         );
-    final subs = parseSubCategories(cat?['sub_categories']);
+    final subs = parseSubCategories(cat?['sub_categories'])..sort(compareNames);
     return ['All Sub-categories', ...subs, '(No sub-category)'];
   }
 
@@ -472,11 +482,13 @@ class _AdvancedReportsState extends State<AdvancedReports> {
 
     final accountOptions = [
       'All Accounts',
-      ...widget.accounts.map((a) => a['name'].toString()).toSet(),
+      ...(widget.accounts.map((a) => a['name'].toString()).toSet().toList()
+        ..sort(compareNames)),
     ];
     final categoryOptions = [
       'All Categories',
-      ...widget.categories.map((c) => c['name'].toString()).toSet(),
+      ...(widget.categories.map((c) => c['name'].toString()).toSet().toList()
+        ..sort(compareNames)),
     ];
     final safeAccount = accountOptions.contains(_selectedAccount)
         ? _selectedAccount

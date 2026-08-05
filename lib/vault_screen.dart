@@ -11,6 +11,7 @@ import 'utils/document_scan_helper.dart';
 import 'utils/image_helper.dart';
 import 'utils/vault_pin_prefs.dart';
 import 'vault_family_pages.dart';
+import 'business_cards_screen.dart';
 import 'widgets/family_expiry_panel.dart';
 
 // ==================== LIGHT VAULT THEME ====================
@@ -41,6 +42,7 @@ class _VaultScreenState extends State<VaultScreen>
   List<Map<String, dynamic>> _vaultItems = [];
   List<Map<String, dynamic>> _cards = [];
   List<Map<String, dynamic>> _familyDocs = [];
+  List<Map<String, dynamic>> _businessCards = [];
 
   bool _isLoading = true;
   bool _isLocked = false;
@@ -89,6 +91,7 @@ class _VaultScreenState extends State<VaultScreen>
       _vaultItems = await DatabaseHelper.instance.getVaultItems();
       _cards = await DatabaseHelper.instance.getCards();
       _familyDocs = await DatabaseHelper.instance.queryAllRows('family_vault');
+      _businessCards = await DatabaseHelper.instance.getBusinessCards();
     } catch (e) {
       debugPrint("Error loading vault data: $e");
     } finally {
@@ -812,6 +815,13 @@ class _VaultScreenState extends State<VaultScreen>
     ).then((_) => _loadVaultData());
   }
 
+  void _openBusinessCardsPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const BusinessCardsPage()),
+    ).then((_) => _loadVaultData());
+  }
+
   // Legacy sheet kept unused — superseded by FamilyVaultHubPage.
   void _openFamilyVaultSheet() => _openFamilyVaultPage();
 
@@ -1392,6 +1402,19 @@ class _VaultScreenState extends State<VaultScreen>
                           accent: AppTheme.primary,
                           count: _familyDocs.length,
                           onTap: _openFamilyVaultPage,
+                        ),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: _buildDashboardFolder(
+                          title: "Business Cards",
+                          subtitle: "Scan, auto-title & master search",
+                          icon: Icons.badge_rounded,
+                          accent: const Color(0xFF0D9488),
+                          count: _businessCards.length,
+                          onTap: _openBusinessCardsPage,
                         ),
                       ),
                     ),

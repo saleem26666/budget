@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_theme.dart';
 import 'database_helper.dart';
+import 'utils/category_utils.dart';
 import 'utils/image_helper.dart';
 import 'utils/link_helper.dart';
 import 'widgets/category_filter_bar.dart';
@@ -125,6 +126,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       cats = List<Map<String, dynamic>>.from(_defaultCategories);
       await prefs.setString(_categoriesPrefKey, jsonEncode(cats));
     }
+    cats.sort(compareNameMaps);
     if (mounted) setState(() => _categories = cats);
   }
 
