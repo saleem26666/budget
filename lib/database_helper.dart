@@ -67,7 +67,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 22,
+      version: 23,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     ).then((db) async {
@@ -211,6 +211,7 @@ class DatabaseHelper {
       CREATE TABLE family_vault(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         member_name TEXT,
+        title TEXT,
         doc_type TEXT,
         doc_number TEXT,
         expiry_date TEXT,
@@ -291,6 +292,14 @@ class DatabaseHelper {
   }
 
   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 23) {
+      try {
+        final cols = await db.rawQuery('PRAGMA table_info(family_vault)');
+        if (!cols.any((c) => c['name'] == 'title')) {
+          await db.execute('ALTER TABLE family_vault ADD COLUMN title TEXT');
+        }
+      } catch (_) {}
+    }
     if (oldVersion < 22) {
       try {
         await db.execute('''

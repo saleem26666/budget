@@ -2302,6 +2302,20 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           'initial_balance': openingBalance,
         };
       },
+      onCreateCategory: (name, budget) async {
+        final id = await DatabaseHelper.instance.addCategory({
+          'name': name,
+          'budget': budget,
+          'sub_categories': '[]',
+        });
+        await _loadAllData();
+        return {
+          'id': id,
+          'name': name,
+          'budget': budget,
+          'sub_categories': '[]',
+        };
+      },
       onSave: (data) async {
         if (editTx == null) {
           await DatabaseHelper.instance.addTransaction(data);

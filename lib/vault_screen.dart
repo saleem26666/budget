@@ -1022,7 +1022,7 @@ class _VaultScreenState extends State<VaultScreen>
         GestureDetector(
           onTap: () async {
             String txt =
-                "Name: ${doc['member_name']}\nType: ${doc['doc_type']}\nNo: ${doc['doc_number']}\nExp: ${doc['expiry_date']?.split('T')[0] ?? 'N/A'}";
+                "Title: ${doc['title'] ?? ''}\nName: ${doc['member_name']}\nType: ${doc['doc_type']}\nNo: ${doc['doc_number']}\nExp: ${doc['expiry_date']?.split('T')[0] ?? 'N/A'}";
             List<XFile> xImgs = imgs.map((path) => XFile(path)).toList();
             xImgs.isNotEmpty
                 ? await Share.shareXFiles(xImgs, text: txt)
@@ -1040,7 +1040,12 @@ class _VaultScreenState extends State<VaultScreen>
         ),
       ],
       children: [
+        _buildInfoTile(Icons.title_rounded, "Title",
+            (doc['title']?.toString().trim().isNotEmpty == true)
+                ? doc['title'].toString()
+                : (doc['doc_type'] ?? '—').toString()),
         _buildInfoTile(Icons.person_outline, "Member", doc['member_name']),
+        _buildInfoTile(Icons.badge_outlined, "Type", doc['doc_type']),
         _buildInfoTile(Icons.numbers_rounded, "Number", doc['doc_number']),
         _buildInfoTile(Icons.calendar_today_rounded, "Expiry",
             doc['expiry_date']?.split('T')[0] ?? 'N/A',
@@ -1596,15 +1601,20 @@ Widget _buildDarkTextField(
   IconData icon, {
   bool isNumber = false, // ✅ ADDED
   bool isObscure = false, // ✅ ADDED
+  String? hint,
 }) {
   return TextField(
     controller: controller,
     style: const TextStyle(color: AppColors.textPrimary),
     obscureText: isObscure,
     keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+    textCapitalization:
+        isNumber || isObscure ? TextCapitalization.none : TextCapitalization.words,
     decoration: InputDecoration(
       labelText: label,
+      hintText: hint,
       labelStyle: TextStyle(color: AppColors.textMuted),
+      hintStyle: TextStyle(color: AppColors.textMuted.withOpacity(0.7), fontSize: 13),
       prefixIcon: Icon(icon, color: AppColors.textMuted, size: 20),
       filled: true,
       fillColor: AppColors.surfaceLight.withOpacity(0.5),
@@ -1854,7 +1864,8 @@ class AddFamilyDocWidget extends StatefulWidget {
 }
 
 class _AddFamilyDocWidgetState extends State<AddFamilyDocWidget> {
-  late TextEditingController nameC, numC;
+  static const _addTypeSentinel = '__add_new_doc_type__';
+  late TextEditingController nameC, titleC, numC;
   late String docType;
   List<String> types = [];
   DateTime? expiry;
@@ -1865,11 +1876,14 @@ class _AddFamilyDocWidgetState extends State<AddFamilyDocWidget> {
     super.initState();
     nameC = TextEditingController(
         text: widget.editDoc?['member_name'] ?? widget.prefilledName ?? '');
+    titleC = TextEditingController(
+        text: widget.editDoc?['title']?.toString() ?? '');
     numC = TextEditingController(text: widget.editDoc?['doc_number'] ?? '');
     types = {
       "Identity",
       "Education",
       "Medical",
+      "Hospital MR",
       "Finance",
       "Other",
       ...widget.existingTypes
@@ -1886,6 +1900,80 @@ class _AddFamilyDocWidgetState extends State<AddFamilyDocWidget> {
         docImages = List<String>.from(jsonDecode(widget.editDoc!['images']));
       } catch (_) {}
     }
+  }
+
+  bool get _isMedicalType {
+    final t = docType.toLowerCase();
+    return t == 'medical' ||
+        t == 'hospital mr' ||
+        t.contains('hospital') ||
+        t.contains('mr');
+  }
+
+  String get _numberLabel => _isMedicalType
+      ? 'MR / Card Number'
+      : 'Doc Number (CNIC, etc.)';
+
+  String get _titleHint => _isMedicalType
+      ? 'e.g. Dow Hospital, Aga Khan Hospital'
+      : 'e.g. CNIC, Passport, Degree';
+
+  Future<void> _addNewDocType() async {
+    final typeC = TextEditingController();
+    final created = await showDialog<String>(
+      context: context,
+      builder: (dCtx) => AlertDialog(
+        title: const Text('New document type'),
+        content: TextField(
+          controller: typeC,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(
+            labelText: 'Type name',
+            hintText: 'e.g. Insurance, Visa, Lab Report',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (v) {
+            final name = v.trim();
+            if (name.isNotEmpty) Navigator.pop(dCtx, name);
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dCtx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = typeC.text.trim();
+              if (name.isEmpty) return;
+              Navigator.pop(dCtx, name);
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    if (created == null || created.isEmpty) return;
+    final exists = types.any((t) => t.toLowerCase() == created.toLowerCase());
+    if (exists) {
+      final existing = types.firstWhere(
+          (t) => t.toLowerCase() == created.toLowerCase());
+      setState(() => docType = existing);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Type "$existing" already exists'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+    setState(() {
+      types.add(created);
+      docType = created;
+    });
   }
 
   @override
@@ -1908,16 +1996,47 @@ class _AddFamilyDocWidgetState extends State<AddFamilyDocWidget> {
           children: [
             _buildDarkTextField(nameC, "Member Name", Icons.person_outline),
             const SizedBox(height: 12),
+            _buildDarkTextField(
+              titleC,
+              "Title (hospital / document name)",
+              Icons.title_rounded,
+              hint: _titleHint,
+            ),
+            const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: docType,
-              items: types
-                  .map((e) => DropdownMenuItem(
+              value: types.contains(docType) ? docType : null,
+              items: [
+                ...types.map((e) => DropdownMenuItem(
                       value: e,
                       child: Text(e,
                           style:
-                              const TextStyle(color: AppColors.textPrimary))))
-                  .toList(),
-              onChanged: (v) => setState(() => docType = v!),
+                              const TextStyle(color: AppColors.textPrimary)),
+                    )),
+                const DropdownMenuItem(
+                  value: _addTypeSentinel,
+                  child: Row(
+                    children: [
+                      Icon(Icons.add_circle_outline,
+                          size: 20, color: AppColors.primary),
+                      SizedBox(width: 8),
+                      Text(
+                        'Add new type',
+                        style: TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              onChanged: (v) async {
+                if (v == _addTypeSentinel) {
+                  await _addNewDocType();
+                } else if (v != null) {
+                  setState(() => docType = v);
+                }
+              },
               decoration: InputDecoration(
                 labelText: "Document Type",
                 labelStyle: TextStyle(color: AppColors.textMuted),
@@ -1938,7 +2057,7 @@ class _AddFamilyDocWidgetState extends State<AddFamilyDocWidget> {
             ),
             const SizedBox(height: 12),
             _buildDarkTextField(
-                numC, "Doc Number (Optional)", Icons.numbers_rounded),
+                numC, _numberLabel, Icons.numbers_rounded),
             const SizedBox(height: 12),
             GestureDetector(
               onTap: () async {
@@ -2066,9 +2185,10 @@ class _AddFamilyDocWidgetState extends State<AddFamilyDocWidget> {
           onPressed: () {
             if (nameC.text.isNotEmpty) {
               widget.onSave({
-                'member_name': nameC.text,
+                'member_name': nameC.text.trim(),
+                'title': titleC.text.trim(),
                 'doc_type': docType,
-                'doc_number': numC.text,
+                'doc_number': numC.text.trim(),
                 'expiry_date': expiry?.toIso8601String(),
                 'images': jsonEncode(docImages),
                 'timestamp': DateTime.now().toIso8601String(),

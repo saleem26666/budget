@@ -12,6 +12,7 @@ import '../utils/platform_utils.dart';
 import '../utils/category_utils.dart';
 import '../utils/document_scan_helper.dart';
 import '../utils/image_helper.dart';
+import 'amount_calculator.dart';
 import 'full_screen_image.dart';
 
 Future<void> showTransactionSheet({
@@ -26,11 +27,16 @@ Future<void> showTransactionSheet({
   /// Create account in DB; return saved row (with name) or null on failure.
   Future<Map<String, dynamic>?> Function(String name, double openingBalance)?
       onCreateAccount,
+  /// Create category in DB; return saved row or null on failure.
+  Future<Map<String, dynamic>?> Function(String name, double budget)?
+      onCreateCategory,
   required Future<void> Function(Map<String, dynamic> data) onSave,
 }) {
   final homeCode = CurrencyService.instance.code;
   final workingAccounts = List<Map<String, dynamic>>.from(accounts);
+  final workingCategories = List<Map<String, dynamic>>.from(categories);
   const addAccountSentinel = '__add_new_account__';
+  const addCategorySentinel = '__add_new_category__';
   final titleC = TextEditingController(text: editTx?['title']?.toString() ?? '');
   final descC = TextEditingController(text: editTx?['desc']?.toString() ?? '');
 
@@ -64,7 +70,9 @@ Future<void> showTransactionSheet({
           ? workingAccounts[1]['name'].toString()
           : '');
   String cat = editTx?['category']?.toString() ??
-      (categories.isNotEmpty ? categories.first['name'].toString() : 'General');
+      (workingCategories.isNotEmpty
+          ? workingCategories.first['name'].toString()
+          : 'General');
   String? subCat = editTx?['sub_category']?.toString();
   if (subCat != null && subCat.isEmpty) subCat = null;
   // Default: transfers do NOT affect category/budget unless user chooses +/-.
@@ -130,7 +138,8 @@ Future<void> showTransactionSheet({
         final rateUpdated = ExchangeRateService.instance.lastUpdated;
         List<String> availableSubCats = [];
         try {
-          final catObj = categories.firstWhere((e) => e['name'] == cat);
+          final catObj =
+              workingCategories.firstWhere((e) => e['name'] == cat);
           availableSubCats = parseSubCategories(catObj['sub_categories']);
         } catch (_) {}
         if (subCat != null && !availableSubCats.contains(subCat)) {
@@ -143,7 +152,7 @@ Future<void> showTransactionSheet({
             .toSet()
             .toList()
           ..sort(compareNames);
-        final categoryNames = categories
+        final categoryNames = workingCategories
             .map((e) => e['name'].toString())
             .where((n) => n.isNotEmpty)
             .toSet()
@@ -234,6 +243,92 @@ Future<void> showTransactionSheet({
               acc = name;
             }
           });
+        }
+
+        Future<void> createCategoryAndSelect() async {
+          if (onCreateCategory == null) return;
+          final nameC = TextEditingController();
+          final budC = TextEditingController(text: '0');
+          final created = await showDialog<Map<String, dynamic>>(
+            context: context,
+            builder: (dCtx) => AlertDialog(
+              title: const Text('New category'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameC,
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      labelText: 'Category name',
+                      hintText: 'e.g. Medical, Fuel',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: budC,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Monthly budget (optional)',
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dCtx),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final name = nameC.text.trim();
+                    if (name.isEmpty) return;
+                    final exists = workingCategories.any((c) =>
+                        c['name'].toString().toLowerCase() ==
+                        name.toLowerCase());
+                    if (exists) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Category "$name" already exists'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                      return;
+                    }
+                    final budget = double.tryParse(budC.text.trim()) ?? 0;
+                    final row = await onCreateCategory(name, budget);
+                    if (row != null && dCtx.mounted) {
+                      Navigator.pop(dCtx, row);
+                    }
+                  },
+                  child: const Text('Create'),
+                ),
+              ],
+            ),
+          );
+          if (created == null) {
+            setSt(() {});
+            return;
+          }
+          setSt(() {
+            workingCategories.add(created);
+            cat = created['name'].toString();
+            subCat = null;
+          });
+        }
+
+        Future<void> openAmountCalculator() async {
+          final result = await showAmountCalculator(
+            context,
+            initialValue: amountC.text.trim(),
+          );
+          if (result != null) {
+            setSt(() {
+              amountC.text = result;
+            });
+          }
         }
 
         List<DropdownMenuItem<String>> accountMenuItems() => [
@@ -423,12 +518,19 @@ Future<void> showTransactionSheet({
                   const SizedBox(height: 10),
                   TextField(
                     controller: amountC,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
+                    readOnly: true,
+                    showCursor: true,
+                    onTap: openAmountCalculator,
                     onChanged: (_) => setSt(() {}),
                     decoration: InputDecoration(
                       labelText: 'Amount ($fxCurrency)',
                       prefixIcon: const Icon(Icons.payments_outlined),
+                      suffixIcon: IconButton(
+                        tooltip: 'Calculator',
+                        icon: const Icon(Icons.calculate_outlined),
+                        onPressed: openAmountCalculator,
+                      ),
+                      helperText: 'Tap to open calculator',
                     ),
                   ),
                   if (fxCurrency != homeCode) ...[
@@ -574,14 +676,40 @@ Future<void> showTransactionSheet({
                       Expanded(
                         child: DropdownButtonFormField<String>(
                           value: categoryNames.contains(cat) ? cat : null,
-                          items: categoryNames
-                              .map((e) => DropdownMenuItem(
-                                  value: e, child: Text(e)))
-                              .toList(),
-                          onChanged: (v) => setSt(() {
-                            cat = v ?? cat;
-                            subCat = null;
-                          }),
+                          items: [
+                            ...categoryNames.map((e) => DropdownMenuItem(
+                                  value: e,
+                                  child: Text(e),
+                                )),
+                            if (onCreateCategory != null)
+                              const DropdownMenuItem(
+                                value: addCategorySentinel,
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.add_circle_outline,
+                                        size: 20, color: AppTheme.primary),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Add new category',
+                                      style: TextStyle(
+                                        color: AppTheme.primary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                          onChanged: (v) async {
+                            if (v == addCategorySentinel) {
+                              await createCategoryAndSelect();
+                            } else if (v != null) {
+                              setSt(() {
+                                cat = v;
+                                subCat = null;
+                              });
+                            }
+                          },
                           decoration:
                               const InputDecoration(labelText: 'Category'),
                         ),

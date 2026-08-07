@@ -39,7 +39,11 @@ class FamilyExpiryCenter {
       if (status == 'ok') continue;
       items.add(FamilyExpiryItem(
         memberName: (d['member_name'] ?? 'Family').toString(),
-        docType: (d['doc_type'] ?? 'Document').toString(),
+        docType: () {
+          final t = (d['title'] ?? '').toString().trim();
+          if (t.isNotEmpty) return t;
+          return (d['doc_type'] ?? 'Document').toString();
+        }(),
         expiry: day,
         status: status,
       ));

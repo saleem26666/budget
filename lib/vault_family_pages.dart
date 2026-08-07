@@ -65,6 +65,7 @@ Color _typeColor(String type) {
     case 'education':
       return const Color(0xFF3B82F6);
     case 'medical':
+    case 'hospital mr':
       return const Color(0xFF10B981);
     case 'identity':
       return const Color(0xFF6366F1);
@@ -73,6 +74,12 @@ Color _typeColor(String type) {
     default:
       return AppTheme.primary;
   }
+}
+
+String familyDocTitle(Map<String, dynamic> doc) {
+  final t = (doc['title'] ?? '').toString().trim();
+  if (t.isNotEmpty) return t;
+  return (doc['doc_type'] ?? 'Document').toString();
 }
 
 // ==================== HUB ====================
@@ -156,7 +163,8 @@ class _FamilyVaultHubPageState extends State<FamilyVaultHubPage> {
       }
       if (q.isEmpty) return true;
       final blob =
-          '${d['member_name']} ${d['doc_type']} ${d['doc_number']}'.toLowerCase();
+          '${d['member_name']} ${d['title']} ${d['doc_type']} ${d['doc_number']}'
+              .toLowerCase();
       return blob.contains(q);
     }).toList();
   }
@@ -220,7 +228,7 @@ class _FamilyVaultHubPageState extends State<FamilyVaultHubPage> {
                     controller: _searchC,
                     onChanged: (v) => setState(() => _query = v),
                     decoration: InputDecoration(
-                      hintText: 'Search member, type, or number…',
+                      hintText: 'Search title, hospital, member, or number…',
                       prefixIcon: const Icon(Icons.search_rounded),
                       suffixIcon: _query.isEmpty
                           ? null
@@ -403,7 +411,9 @@ class _DocListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final type = (doc['doc_type'] ?? 'Other').toString();
+    final title = familyDocTitle(doc);
     final member = familyDisplayName(doc['member_name']?.toString());
+    final number = (doc['doc_number'] ?? '').toString().trim();
     final status = expiryStatus(doc['expiry_date']);
     final accent = _typeColor(type);
     Color? bg;
@@ -411,6 +421,14 @@ class _DocListTile extends StatelessWidget {
       bg = AppTheme.expense.withValues(alpha: 0.06);
     } else if (status == _ExpiryStatus.soon) {
       bg = Colors.orange.withValues(alpha: 0.06);
+    }
+
+    String subtitle = member;
+    if (number.isNotEmpty) subtitle = '$member · $number';
+    if (status == _ExpiryStatus.expired) {
+      subtitle = '$subtitle · Expired';
+    } else if (status == _ExpiryStatus.soon) {
+      subtitle = '$subtitle · Expires soon';
     }
 
     return Padding(
@@ -443,7 +461,9 @@ class _DocListTile extends StatelessWidget {
                       contentPadding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 4),
                       title: Text(
-                        type,
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontWeight: FontWeight.w600,
                           fontSize: 15,
@@ -452,11 +472,9 @@ class _DocListTile extends StatelessWidget {
                       subtitle: Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(
-                          status == _ExpiryStatus.ok
-                              ? member
-                              : status == _ExpiryStatus.expired
-                                  ? '$member · Expired'
-                                  : '$member · Expires soon',
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 12,
                             color: status == _ExpiryStatus.expired
@@ -699,7 +717,7 @@ class _FamilyDocDetailPageState extends State<FamilyDocDetailPage> {
     if (doc == null) return;
     final imgs = parseFamilyImages(doc);
     final txt =
-        'Name: ${doc['member_name']}\nType: ${doc['doc_type']}\nNo: ${doc['doc_number']}\nExp: ${doc['expiry_date']?.toString().split('T').first ?? 'N/A'}';
+        'Title: ${familyDocTitle(doc)}\nName: ${doc['member_name']}\nType: ${doc['doc_type']}\nNo: ${doc['doc_number']}\nExp: ${doc['expiry_date']?.toString().split('T').first ?? 'N/A'}';
     if (imgs.isNotEmpty) {
       await Share.shareXFiles(imgs.map((p) => XFile(p)).toList(), text: txt);
     } else {
@@ -725,13 +743,16 @@ class _FamilyDocDetailPageState extends State<FamilyDocDetailPage> {
     final imgs = parseFamilyImages(doc);
     final status = expiryStatus(doc['expiry_date']);
     final type = (doc['doc_type'] ?? 'Document').toString();
+    final title = familyDocTitle(doc);
     final expLabel =
         doc['expiry_date']?.toString().split('T').first ?? 'N/A';
+    final numberLabel =
+        (type == 'Medical' || type == 'Hospital MR') ? 'MR / Number' : 'Number';
 
     return Scaffold(
       backgroundColor: AppTheme.surface,
       appBar: AppBar(
-        title: Text(type),
+        title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(
             tooltip: 'Share',
@@ -788,10 +809,11 @@ class _FamilyDocDetailPageState extends State<FamilyDocDetailPage> {
                 ],
               ),
             ),
+          _infoCard(Icons.title_rounded, 'Title', title),
           _infoCard(Icons.person_outline, 'Member',
               familyDisplayName(doc['member_name']?.toString())),
           _infoCard(Icons.badge_outlined, 'Type', type),
-          _infoCard(Icons.numbers_rounded, 'Number',
+          _infoCard(Icons.numbers_rounded, numberLabel,
               (doc['doc_number'] ?? '—').toString()),
           _infoCard(Icons.calendar_today_outlined, 'Expiry', expLabel,
               valueColor: status == _ExpiryStatus.expired
