@@ -287,7 +287,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                       padding: const EdgeInsets.all(32),
                       child: Column(
                         children: [
-                          Icon(Icons.savings_outlined,
+                          Icon(Icons.trending_up_rounded,
                               size: 64, color: Colors.grey.shade400),
                           const SizedBox(height: 12),
                           Text(
@@ -341,7 +341,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.savings_rounded, color: Colors.white70),
+              const Icon(Icons.trending_up_rounded, color: Colors.white70),
               const SizedBox(width: 8),
               const Text('Portfolio Value',
                   style: TextStyle(color: Colors.white70, fontSize: 14)),

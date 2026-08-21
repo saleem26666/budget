@@ -80,7 +80,7 @@ class InvestmentService {
       case 'Property':
         return Icons.home_work_rounded;
       default:
-        return Icons.savings_rounded;
+        return Icons.trending_up_rounded;
     }
   }
 

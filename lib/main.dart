@@ -24,6 +24,7 @@ import 'search_screen.dart';
 import 'services/backup_service.dart';
 import 'services/budget_alert_service.dart';
 import 'services/currency_service.dart';
+import 'services/local_auto_backup_service.dart';
 import 'settings_screen.dart';
 import 'utils/category_utils.dart';
 import 'utils/image_helper.dart';
@@ -38,6 +39,7 @@ import 'widgets/journal_hub.dart';
 import 'widgets/notifications_panel.dart';
 import 'widgets/share_attach_picker_sheet.dart';
 import 'widgets/share_image_destination_sheet.dart';
+import 'widgets/auto_backup_setup_dialog.dart';
 import 'widgets/transaction_sheet.dart';
 import 'widgets/vault_pin_gate.dart';
 
@@ -129,6 +131,51 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     await _loadAllData();
     if (_hasAppPassword()) _scheduleIdleLock();
     _listenForSharedBackup();
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _maybeSetupLocalAutoBackup();
+      });
+    }
+  }
+
+  Future<void> _maybeSetupLocalAutoBackup() async {
+    if (!mounted || !LocalAutoBackupService.instance.isSupported) return;
+
+    Future<bool> restoreIfEmpty() async {
+      if (!await DatabaseHelper.instance.isUserDataEmpty()) return false;
+      final restored =
+          await LocalAutoBackupService.instance.restoreFromDiskIfPresent();
+      if (!restored) return false;
+      await _reloadAfterRestore();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Data restored from phone / SD backup'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        if (_hasAppPassword() && !_isLocked) {
+          _requestAppLock(coldStart: true);
+        }
+      }
+      return true;
+    }
+
+    final status = await LocalAutoBackupService.instance.status();
+    if (!mounted) return;
+    if (!status.setupDone) {
+      await AutoBackupSetupDialog.show(
+        context,
+        allowSkip: true,
+        title: 'Where should auto backup be saved?',
+      );
+      if (!mounted) return;
+      await restoreIfEmpty();
+      await _reloadAfterRestore();
+    } else {
+      await restoreIfEmpty();
+      await LocalAutoBackupService.instance.saveNow();
+    }
   }
 
   Future<void> _loadProfiles(SharedPreferences prefs) async {
@@ -1043,6 +1090,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      LocalAutoBackupService.instance.saveInBackground();
+    }
+
     if (!_hasAppPassword()) return;
 
     switch (state) {
@@ -2486,8 +2539,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 selectedIcon: Icon(Icons.bar_chart),
                 label: 'Reports'),
             NavigationDestination(
-                icon: Icon(Icons.savings_outlined),
-                selectedIcon: Icon(Icons.savings_rounded),
+                icon: Icon(Icons.trending_up_outlined),
+                selectedIcon: Icon(Icons.trending_up_rounded),
                 label: 'Portfolio'),
             NavigationDestination(
                 icon: Icon(Icons.auto_stories_outlined),

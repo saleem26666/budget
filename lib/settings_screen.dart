@@ -17,6 +17,7 @@ import 'database_helper.dart';
 import 'utils/category_utils.dart';
 import 'utils/vault_pin_prefs.dart';
 import 'widgets/about_app_card.dart';
+import 'widgets/auto_backup_setup_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   static final GlobalKey<_SettingsScreenState> globalKey =
@@ -797,6 +798,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
           ),
         ),
+        AutoBackupSettingsCard(onRestored: widget.onBackupRestored),
         _buildGoogleDriveCard(),
         const Padding(
           padding: EdgeInsets.fromLTRB(0, 8, 0, 4),

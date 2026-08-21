@@ -425,6 +425,28 @@ class DatabaseHelper {
     }
   }
 
+  /// True when this profile has no user content (fresh install / empty restore).
+  Future<bool> isUserDataEmpty() async {
+    final db = await database;
+    Future<int> count(String table) async {
+      try {
+        final rows = await db.rawQuery('SELECT COUNT(*) AS c FROM $table');
+        return Sqflite.firstIntValue(rows) ?? 0;
+      } catch (_) {
+        return 0;
+      }
+    }
+
+    return await count('transactions') == 0 &&
+        await count('notes') == 0 &&
+        await count('diary') == 0 &&
+        await count('vault_items') == 0 &&
+        await count('family_vault') == 0 &&
+        await count('cards') == 0 &&
+        await count('business_cards') == 0 &&
+        await count('investments') == 0;
+  }
+
   // ============== GENERIC METHODS ==============
   Future<int> insert(String table, Map<String, dynamic> row) async {
     final db = await instance.database;
