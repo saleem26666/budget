@@ -66,8 +66,8 @@ if /i "%~1"=="split" (
   echo Split APKs: arm64 / arm32 / x86_64  ^(tez nahi, 3 phones types^)
   call flutter build apk --release --split-per-abi
 ) else if /i "%~1"=="fat" (
-  echo Fat APK — 1 file, sab phones  ^(sab se slow^)
-  call flutter build apk --release
+  echo Fat APK — phones only ^(arm32+arm64, no x86, ~65MB^)
+  call flutter build apk --release --target-platform android-arm,android-arm64
 ) else if /i "%~1"=="clean" (
   echo Clean + arm64 APK
   call flutter clean
