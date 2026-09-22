@@ -33,12 +33,10 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        // Phones only: drop x86/x86_64 (emulators). Flutter + ML Kit otherwise bloat the fat APK.
-        ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
-        }
     }
 
+    // Strip emulator ABIs from merged APK (phones only). Do not set ndk.abiFilters —
+    // that conflicts with flutter build apk --split-per-abi.
     packaging {
         jniLibs {
             excludes += setOf(
@@ -81,6 +79,7 @@ afterEvaluate {
             val ver = flutter.versionName
             val copies = listOf(
                 "app-release.apk" to "BudgetPro_v${ver}_$shortDate.apk",
+                "app-release.apk" to "BudgetPro_overinstall_$shortDate.apk",
                 "app-arm64-v8a-release.apk" to "BudgetPro_v${ver}_${shortDate}_arm64.apk",
                 "app-armeabi-v7a-release.apk" to "BudgetPro_v${ver}_${shortDate}_arm32.apk",
                 "app-x86_64-release.apk" to "BudgetPro_v${ver}_${shortDate}_x86_64.apk",

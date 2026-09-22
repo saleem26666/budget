@@ -1,7 +1,8 @@
 name: budget_pro
 description: Complete Budget Management App with Vault, Diary, Notebook, and Backup Features
 publish_to: 'none'
-version: 2.5.0+26
+# versionCode must stay above prior split-per-abi codes (arm64 used 2*1000+26=2026)
+version: 2.5.1+3000
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
