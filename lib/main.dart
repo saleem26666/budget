@@ -19,13 +19,19 @@ import 'package:table_calendar/table_calendar.dart';
 
 import 'app_theme.dart';
 import 'database_helper.dart';
+import 'family_spend_screen.dart';
+import 'recurring_screen.dart';
 import 'reports_screen.dart';
 import 'search_screen.dart';
 import 'services/backup_service.dart';
 import 'services/budget_alert_service.dart';
 import 'services/currency_service.dart';
 import 'services/local_auto_backup_service.dart';
+import 'services/notification_service.dart';
+import 'services/recurring_service.dart';
+import 'services/theme_controller.dart';
 import 'settings_screen.dart';
+import 'udhaar_screen.dart';
 import 'utils/category_utils.dart';
 import 'utils/image_helper.dart';
 import 'utils/profile_templates.dart';
@@ -43,7 +49,7 @@ import 'widgets/auto_backup_setup_dialog.dart';
 import 'widgets/transaction_sheet.dart';
 import 'widgets/vault_pin_gate.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
@@ -51,12 +57,27 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   }
 
-  runApp(MaterialApp(
-    debugShowCheckedModeBanner: false,
-    title: 'Budget Pro',
-    theme: AppTheme.light,
-    home: const MainScreen(),
-  ));
+  await ThemeController.instance.load();
+  runApp(const BudgetProApp());
+}
+
+class BudgetProApp extends StatelessWidget {
+  const BudgetProApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: ThemeController.instance,
+      builder: (context, _) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'Budget Pro',
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: ThemeController.instance.themeMode,
+        home: const MainScreen(),
+      ),
+    );
+  }
 }
 
 class MainScreen extends StatefulWidget {
@@ -134,7 +155,22 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _maybeSetupLocalAutoBackup();
+        _initReminders();
       });
+    }
+  }
+
+  Future<void> _initReminders() async {
+    try {
+      await NotificationService.instance.init();
+      if (await NotificationService.instance.enabled) {
+        await NotificationService.instance.requestPermission();
+        await NotificationService.instance.rescheduleActiveProfile(
+          budgetAlerts: _budgetAlerts,
+        );
+      }
+    } catch (e) {
+      debugPrint('reminders: $e');
     }
   }
 
@@ -1118,6 +1154,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _loadAllData() async {
+    RecurringPostResult posted = const RecurringPostResult(
+      postedCount: 0,
+      titles: [],
+    );
+    try {
+      posted = await RecurringService.instance.processDue();
+    } catch (e) {
+      debugPrint('recurring post: $e');
+    }
+
     final tx = await DatabaseHelper.instance.getTransactions();
     final acc = await DatabaseHelper.instance.getAccounts();
     final cat = await DatabaseHelper.instance.getCategories();
@@ -1157,6 +1203,22 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         );
       });
 
+      NotificationService.instance.rescheduleActiveProfile(
+        budgetAlerts: _budgetAlerts,
+      );
+
+      if (posted.postedCount > 0 && mounted) {
+        final names = posted.titles.take(3).join(', ');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              posted.postedCount == 1
+                  ? 'Recurring added: $names'
+                  : 'Added ${posted.postedCount} recurring: $names',
+            ),
+          ),
+        );
+      }
       if (_isFirstStart) {
         _isFirstStart = false;
         if (_appPassword != null && _appPassword!.isNotEmpty) {
@@ -1972,6 +2034,55 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               ],
             ),
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.35)),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                  onPressed: _openRecurringScreen,
+                  icon: const Icon(Icons.event_repeat_rounded, size: 18),
+                  label:
+                      const Text('Recurring', style: TextStyle(fontSize: 12)),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.35)),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                  onPressed: _openUdhaarScreen,
+                  icon: const Icon(Icons.handshake_outlined, size: 18),
+                  label:
+                      const Text('Udhaar', style: TextStyle(fontSize: 12)),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.35)),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                  onPressed: _openFamilySpendScreen,
+                  icon: const Icon(Icons.family_restroom_rounded, size: 18),
+                  label:
+                      const Text('Family', style: TextStyle(fontSize: 12)),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -2325,14 +2436,66 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             ]));
   }
 
-  Future<void> _showAddTxModal({Map? editTx, List<String>? initialImages}) async {
+  Future<List<String>> _familyMemberNames() async {
     final familyDocs = await DatabaseHelper.instance.getFamilyVault();
-    final members = familyDocs
+    final fromVault = familyDocs
         .map((d) => (d['member_name'] ?? '').toString().trim())
-        .where((n) => n.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
+        .where((n) => n.isNotEmpty);
+    final fromTx = _transactions
+        .map((t) => (t['member_name'] ?? '').toString().trim())
+        .where((n) => n.isNotEmpty);
+    return {...fromVault, ...fromTx}.toList()..sort();
+  }
+
+  Future<void> _openRecurringScreen() async {
+    final members = await _familyMemberNames();
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RecurringScreen(
+          accounts: _accounts,
+          categories: _categories,
+          familyMembers: members,
+          onChanged: () {
+            _loadAllData();
+          },
+        ),
+      ),
+    );
+    await _loadAllData();
+  }
+
+  Future<void> _openUdhaarScreen() async {
+    final people = await _familyMemberNames();
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => UdhaarScreen(
+          accounts: _accounts,
+          peopleSuggestions: people,
+          onWalletChanged: () {
+            _loadAllData();
+          },
+        ),
+      ),
+    );
+    await _loadAllData();
+  }
+
+  Future<void> _openFamilySpendScreen() async {
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FamilySpendScreen(transactions: _transactions),
+      ),
+    );
+  }
+
+  Future<void> _showAddTxModal({Map? editTx, List<String>? initialImages}) async {
+    final members = await _familyMemberNames();
     if (!mounted) return;
     await showTransactionSheet(
       context: context,
@@ -2370,8 +2533,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         };
       },
       onSave: (data) async {
+        final repeat = data.remove('_repeat_frequency')?.toString();
         if (editTx == null) {
           await DatabaseHelper.instance.addTransaction(data);
+          if (repeat != null &&
+              RecurringService.frequencies.contains(repeat)) {
+            await RecurringService.instance.addFromTransaction(data, repeat);
+          }
         } else {
           await DatabaseHelper.instance.updateTransaction(editTx['id'], data);
         }
@@ -2492,6 +2660,44 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               ],
             ),
             if (_selectedIndex == 0) ...[
+              PopupMenuButton<String>(
+                tooltip: 'More',
+                icon: const Icon(Icons.more_vert_rounded),
+                onSelected: (v) {
+                  if (v == 'recurring') _openRecurringScreen();
+                  if (v == 'udhaar') _openUdhaarScreen();
+                  if (v == 'family') _openFamilySpendScreen();
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'recurring',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.event_repeat_rounded),
+                      title: Text('Recurring'),
+                      dense: true,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'udhaar',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.handshake_outlined),
+                      title: Text('Udhaar book'),
+                      dense: true,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'family',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.family_restroom_rounded),
+                      title: Text('Family spend'),
+                      dense: true,
+                    ),
+                  ),
+                ],
+              ),
               IconButton(
                 icon: const Icon(Icons.add_circle_outline_rounded),
                 tooltip: 'Add transaction',

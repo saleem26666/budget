@@ -66,8 +66,8 @@ if /i "%~1"=="split" (
   echo Split APKs: arm64 / arm32 / x86_64  ^(tez nahi, 3 phones types^)
   call flutter build apk --release --split-per-abi
 ) else if /i "%~1"=="fat" (
-  echo Fat APK — 1 file, sab phones  ^(sab se slow^)
-  call flutter build apk --release
+  echo Fat APK — phones only ^(arm32+arm64, no x86, ~65MB^)
+  call flutter build apk --release --target-platform android-arm,android-arm64
 ) else if /i "%~1"=="clean" (
   echo Clean + arm64 APK
   call flutter clean
@@ -86,20 +86,38 @@ if errorlevel 1 (
 )
 
 set "APK_DIR=%~dp0build\app\outputs\flutter-apk"
+set "OUT_DIR=%~dp0"
+echo.
+echo === Copy APK to project folder ===
+if exist "%APK_DIR%\BudgetPro_*.apk" (
+  for %%F in ("%APK_DIR%\BudgetPro_*.apk") do (
+    copy /Y "%%~F" "%OUT_DIR%%%~nxF" >nul
+    echo Copied: %OUT_DIR%%%~nxF
+  )
+) else if exist "%APK_DIR%\app-release.apk" (
+  copy /Y "%APK_DIR%\app-release.apk" "%OUT_DIR%BudgetPro_release.apk" >nul
+  echo Copied: %OUT_DIR%BudgetPro_release.apk
+) else if exist "%APK_DIR%\app-arm64-v8a-release.apk" (
+  copy /Y "%APK_DIR%\app-arm64-v8a-release.apk" "%OUT_DIR%BudgetPro_arm64.apk" >nul
+  echo Copied: %OUT_DIR%BudgetPro_arm64.apk
+)
+
 echo.
 echo ========================================
 echo  OK — APK ready
-echo  Folder: %APK_DIR%
+echo  Build folder: %APK_DIR%
+echo  Project folder: %OUT_DIR%
 echo ========================================
 echo.
-if exist "%APK_DIR%\*.apk" (
+if exist "%OUT_DIR%BudgetPro_*.apk" (
+  dir /b "%OUT_DIR%BudgetPro_*.apk"
+) else if exist "%APK_DIR%\*.apk" (
   dir /b "%APK_DIR%\*.apk"
 ) else (
-  echo [WARN] APK file nahi mili is folder me.
+  echo [WARN] APK file nahi mili.
 )
 echo.
-echo Phone pe install: app-release.apk
-echo Named copy: BudgetPro_v^<version^>_^<date^>.apk
+echo Phone pe install: BudgetPro_*.apk  ^(isi project folder me^)
 echo.
 echo Extra options:
 echo   build_apk.bat         = tez arm64 APK ^(default^)
@@ -108,6 +126,6 @@ echo   build_apk.bat fat     = 1 bari APK sab phones ke liye
 echo   build_apk.bat clean   = flutter clean ke baad arm64 build
 echo.
 
-if exist "%APK_DIR%" explorer "%APK_DIR%"
+if exist "%OUT_DIR%" explorer "%OUT_DIR%"
 pause
 endlocal

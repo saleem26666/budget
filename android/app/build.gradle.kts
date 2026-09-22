@@ -15,6 +15,7 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -34,6 +35,17 @@ android {
         versionName = flutter.versionName
     }
 
+    // Strip emulator ABIs from merged APK (phones only). Do not set ndk.abiFilters —
+    // that conflicts with flutter build apk --split-per-abi.
+    packaging {
+        jniLibs {
+            excludes += setOf(
+                "lib/x86/**",
+                "lib/x86_64/**",
+            )
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
@@ -51,6 +63,7 @@ android {
 
 dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 
 flutter {
@@ -66,6 +79,7 @@ afterEvaluate {
             val ver = flutter.versionName
             val copies = listOf(
                 "app-release.apk" to "BudgetPro_v${ver}_$shortDate.apk",
+                "app-release.apk" to "BudgetPro_overinstall_$shortDate.apk",
                 "app-arm64-v8a-release.apk" to "BudgetPro_v${ver}_${shortDate}_arm64.apk",
                 "app-armeabi-v7a-release.apk" to "BudgetPro_v${ver}_${shortDate}_arm32.apk",
                 "app-x86_64-release.apk" to "BudgetPro_v${ver}_${shortDate}_x86_64.apk",

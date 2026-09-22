@@ -147,6 +147,24 @@ class BackupService {
     final investments = (await db.query('investments'))
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
+    List<Map<String, dynamic>> udhaarEntries = [];
+    List<Map<String, dynamic>> udhaarPayments = [];
+    try {
+      udhaarEntries = (await db.query('udhaar_entries'))
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    } catch (_) {}
+    try {
+      udhaarPayments = (await db.query('udhaar_payments'))
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    } catch (_) {}
+    List<Map<String, dynamic>> recurring = [];
+    try {
+      recurring = (await db.query('recurring_transactions'))
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    } catch (_) {}
 
     final notebookCats = prefs
         .getString(_profilePrefKey(profileId, 'notebook_categories'));
@@ -265,6 +283,9 @@ class BackupService {
     backupData['diary'] = diaryEntries;
     backupData['vault_items'] = vaultItems;
     backupData['investments'] = investments;
+    backupData['udhaar_entries'] = udhaarEntries;
+    backupData['udhaar_payments'] = udhaarPayments;
+    backupData['recurring_transactions'] = recurring;
     return backupData;
   }
 
@@ -549,6 +570,9 @@ class BackupService {
       'notes',
       'vault_items',
       'investments',
+      'udhaar_entries',
+      'udhaar_payments',
+      'recurring_transactions',
     ]) {
       if (!backup.containsKey(table)) continue;
       for (final raw in backup[table] as List) {

@@ -67,15 +67,81 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 23,
+      version: 25,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     ).then((db) async {
       await _ensureTransactionColumns(db);
+      await _ensureUdhaarTables(db);
+      await _ensureRecurringTable(db);
       await _dedupeNamedRows(db, 'accounts', 'name');
       await _dedupeNamedRows(db, 'categories', 'name');
       return db;
     });
+  }
+
+  Future<void> _ensureRecurringTable(Database db) async {
+    try {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS recurring_transactions(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT,
+          desc TEXT,
+          amount REAL,
+          type TEXT,
+          account TEXT,
+          toAccount TEXT,
+          category TEXT,
+          sub_category TEXT,
+          category_effect TEXT,
+          member_name TEXT,
+          frequency TEXT,
+          interval_n INTEGER,
+          start_date TEXT,
+          next_due TEXT,
+          last_posted TEXT,
+          end_date TEXT,
+          enabled INTEGER,
+          auto_post INTEGER,
+          notify INTEGER,
+          created_at TEXT
+        )
+      ''');
+    } catch (_) {}
+  }
+
+  /// Additive only — never drops existing tables or rows.
+  Future<void> _ensureUdhaarTables(Database db) async {
+    try {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS udhaar_entries(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          person_name TEXT,
+          direction TEXT,
+          amount REAL,
+          paid_amount REAL,
+          account TEXT,
+          note TEXT,
+          start_date TEXT,
+          due_date TEXT,
+          status TEXT,
+          link_wallet INTEGER,
+          created_at TEXT
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS udhaar_payments(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          entry_id INTEGER,
+          amount REAL,
+          account TEXT,
+          note TEXT,
+          date TEXT,
+          transaction_id INTEGER,
+          created_at TEXT
+        )
+      ''');
+    } catch (_) {}
   }
 
   Future<void> _ensureTransactionColumns(Database db) async {
@@ -100,6 +166,10 @@ class DatabaseHelper {
       if (!names.contains('member_name')) {
         await db.execute(
             'ALTER TABLE transactions ADD COLUMN member_name TEXT');
+      }
+      if (!names.contains('recurring_id')) {
+        await db.execute(
+            'ALTER TABLE transactions ADD COLUMN recurring_id INTEGER');
       }
     } catch (_) {}
   }
@@ -289,9 +359,23 @@ class DatabaseHelper {
       'budget': 0.0,
       'sub_categories': jsonEncode(['Movies', 'Games', 'Music'])
     });
+
+    await _ensureUdhaarTables(db);
+    await _ensureRecurringTable(db);
   }
 
   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 25) {
+      try {
+        await _ensureRecurringTable(db);
+        await _ensureTransactionColumns(db);
+      } catch (_) {}
+    }
+    if (oldVersion < 24) {
+      try {
+        await _ensureUdhaarTables(db);
+      } catch (_) {}
+    }
     if (oldVersion < 23) {
       try {
         final cols = await db.rawQuery('PRAGMA table_info(family_vault)');
@@ -600,6 +684,67 @@ class DatabaseHelper {
       update('investments', id, row);
   Future<int> deleteInvestment(int id) => delete('investments', id);
 
+  // ============== UDHAAR (lend / borrow) ==============
+  Future<List<Map<String, dynamic>>> getUdhaarEntries() async {
+    try {
+      final db = await instance.database;
+      return await db.query('udhaar_entries', orderBy: 'id DESC');
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<int> addUdhaarEntry(Map<String, dynamic> row) =>
+      insert('udhaar_entries', row);
+  Future<int> updateUdhaarEntry(int id, Map<String, dynamic> row) =>
+      update('udhaar_entries', id, row);
+
+  Future<int> deleteUdhaarEntry(int id) async {
+    final db = await instance.database;
+    try {
+      await db.delete('udhaar_payments', where: 'entry_id = ?', whereArgs: [id]);
+    } catch (_) {}
+    return await db.delete('udhaar_entries', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<List<Map<String, dynamic>>> getUdhaarPayments(int entryId) async {
+    try {
+      final db = await instance.database;
+      return await db.query(
+        'udhaar_payments',
+        where: 'entry_id = ?',
+        whereArgs: [entryId],
+        orderBy: 'date DESC, id DESC',
+      );
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<int> addUdhaarPayment(Map<String, dynamic> row) =>
+      insert('udhaar_payments', row);
+  Future<int> deleteUdhaarPayment(int id) => delete('udhaar_payments', id);
+
+  // ============== RECURRING ==============
+  Future<List<Map<String, dynamic>>> getRecurringTransactions() async {
+    try {
+      final db = await instance.database;
+      return await db.query(
+        'recurring_transactions',
+        orderBy: 'next_due ASC, id DESC',
+      );
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<int> addRecurringTransaction(Map<String, dynamic> row) =>
+      insert('recurring_transactions', row);
+  Future<int> updateRecurringTransaction(int id, Map<String, dynamic> row) =>
+      update('recurring_transactions', id, row);
+  Future<int> deleteRecurringTransaction(int id) =>
+      delete('recurring_transactions', id);
+
   // ============== SEARCH ==============
   Future<List<Map<String, dynamic>>> searchAllTransactions(String query) async {
     final db = await instance.database;
@@ -625,6 +770,15 @@ class DatabaseHelper {
     await db.delete('diary');
     await db.delete('vault_items');
     await db.delete('investments');
+    try {
+      await db.delete('udhaar_payments');
+    } catch (_) {}
+    try {
+      await db.delete('udhaar_entries');
+    } catch (_) {}
+    try {
+      await db.delete('recurring_transactions');
+    } catch (_) {}
   }
 
   Future<void> clearTransactionsOnly() async {

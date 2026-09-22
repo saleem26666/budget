@@ -1,7 +1,8 @@
 name: budget_pro
 description: Complete Budget Management App with Vault, Diary, Notebook, and Backup Features
 publish_to: 'none'
-version: 2.3.0+24
+# versionCode must stay above prior split-per-abi codes (arm64 used 2*1000+26=2026)
+version: 2.5.1+3000
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -64,6 +65,11 @@ dependencies:
   url_launcher: ^6.3.1
   image: ^4.3.0
   google_mlkit_text_recognition: ^0.16.0
+
+  # Phase 1 — reminders
+  flutter_local_notifications: ^19.5.0
+  timezone: ^0.10.1
+  flutter_timezone: ^4.1.1
 
 # Dependency overrides for desktop compatibility
 dependency_overrides:

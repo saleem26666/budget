@@ -84,6 +84,7 @@ Future<void> showTransactionSheet({
   }
   String? memberName = editTx?['member_name']?.toString();
   if (memberName != null && memberName.isEmpty) memberName = null;
+  String? repeatFreq;
 
   String fxCurrency = editingFx ? editFxCurrency.toUpperCase() : homeCode;
   bool showManualRate = manualRateC.text.trim().isNotEmpty;
@@ -473,6 +474,30 @@ Future<void> showTransactionSheet({
                       if (picked != null) setSt(() => date = picked);
                     },
                   ),
+                  if (editTx == null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: DropdownButtonFormField<String>(
+                        value: repeatFreq,
+                        decoration: const InputDecoration(
+                          labelText: 'Repeat',
+                          prefixIcon: Icon(Icons.event_repeat_rounded),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                              value: null, child: Text('One time')),
+                          DropdownMenuItem(
+                              value: 'daily', child: Text('Daily')),
+                          DropdownMenuItem(
+                              value: 'weekly', child: Text('Weekly')),
+                          DropdownMenuItem(
+                              value: 'monthly', child: Text('Monthly')),
+                          DropdownMenuItem(
+                              value: 'yearly', child: Text('Yearly')),
+                        ],
+                        onChanged: (v) => setSt(() => repeatFreq = v),
+                      ),
+                    ),
                   TextField(
                     controller: titleC,
                     decoration: const InputDecoration(
@@ -951,6 +976,8 @@ Future<void> showTransactionSheet({
                         'fx_amount': entered,
                         'fx_rate': savedRate,
                         'member_name': memberName ?? '',
+                        if (editTx == null && repeatFreq != null)
+                          '_repeat_frequency': repeatFreq,
                       };
                       await onSave(data);
                       if (context.mounted) Navigator.pop(context);

@@ -13,6 +13,8 @@ import 'config/google_oauth_config.dart';
 import 'services/backup_service.dart';
 import 'services/currency_service.dart';
 import 'services/google_drive_backup_service.dart';
+import 'services/notification_service.dart';
+import 'services/theme_controller.dart';
 import 'database_helper.dart';
 import 'utils/category_utils.dart';
 import 'utils/vault_pin_prefs.dart';
@@ -71,6 +73,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   String? _driveAccountName;
   bool _driveBusy = false;
+  bool _notificationsEnabled = true;
+  int _notifyHour = 9;
 
   bool get _driveAvailable => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
@@ -79,6 +83,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadNotebookCategories();
     _refreshDriveAccount();
+    _loadNotificationPrefs();
+  }
+
+  Future<void> _loadNotificationPrefs() async {
+    final enabled = await NotificationService.instance.enabled;
+    final hour = await NotificationService.instance.notifyHour;
+    if (!mounted) return;
+    setState(() {
+      _notificationsEnabled = enabled;
+      _notifyHour = hour;
+    });
   }
 
   Future<void> _refreshDriveAccount() async {
@@ -748,14 +763,129 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const Text("Preferences",
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         Card(
-          child: ListTile(
-            leading: const Icon(Icons.currency_exchange, color: Colors.teal),
-            title: const Text('Default currency'),
-            subtitle: Text(
-              '${currency.label} • home currency for wallet & FX convert',
-            ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _showCurrencyPicker,
+          child: Column(
+            children: [
+              ListTile(
+                leading:
+                    const Icon(Icons.currency_exchange, color: Colors.teal),
+                title: const Text('Default currency'),
+                subtitle: Text(
+                  '${currency.label} • home currency for wallet & FX convert',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _showCurrencyPicker,
+              ),
+              const Divider(height: 1),
+              ListenableBuilder(
+                listenable: ThemeController.instance,
+                builder: (context, _) {
+                  final mode = ThemeController.instance.themeMode;
+                  String label;
+                  switch (mode) {
+                    case ThemeMode.dark:
+                      label = 'Dark';
+                      break;
+                    case ThemeMode.light:
+                      label = 'Light';
+                      break;
+                    case ThemeMode.system:
+                      label = 'Follow system';
+                  }
+                  return Column(
+                    children: [
+                      ListTile(
+                        leading: Icon(
+                          mode == ThemeMode.dark
+                              ? Icons.dark_mode_rounded
+                              : (mode == ThemeMode.light
+                                  ? Icons.light_mode_rounded
+                                  : Icons.brightness_auto_rounded),
+                          color: Colors.indigo,
+                        ),
+                        title: const Text('Appearance'),
+                        subtitle: Text(label),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                        child: SegmentedButton<ThemeMode>(
+                          showSelectedIcon: false,
+                          segments: const [
+                            ButtonSegment(
+                              value: ThemeMode.system,
+                              label: Text('Auto'),
+                              icon: Icon(Icons.brightness_auto, size: 18),
+                            ),
+                            ButtonSegment(
+                              value: ThemeMode.light,
+                              label: Text('Light'),
+                              icon: Icon(Icons.light_mode, size: 18),
+                            ),
+                            ButtonSegment(
+                              value: ThemeMode.dark,
+                              label: Text('Dark'),
+                              icon: Icon(Icons.dark_mode, size: 18),
+                            ),
+                          ],
+                          selected: {mode},
+                          onSelectionChanged: (s) =>
+                              ThemeController.instance.setMode(s.first),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                secondary: const Icon(Icons.notifications_active_outlined,
+                    color: Colors.orange),
+                title: const Text('Phone reminders'),
+                subtitle: const Text(
+                  'Recurring, CNIC expiry, birthdays, budget',
+                ),
+                value: _notificationsEnabled,
+                onChanged: (v) async {
+                  if (v) {
+                    final ok = await NotificationService.instance
+                        .requestPermission(forceAsk: true);
+                    if (!ok && mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Allow notifications in system settings',
+                          ),
+                        ),
+                      );
+                    }
+                  }
+                  await NotificationService.instance.setEnabled(v);
+                  if (mounted) setState(() => _notificationsEnabled = v);
+                },
+              ),
+              if (_notificationsEnabled)
+                ListTile(
+                  leading: const Icon(Icons.schedule, color: Colors.blueGrey),
+                  title: const Text('Reminder time'),
+                  subtitle: Text(
+                    '${_notifyHour.toString().padLeft(2, '0')}:00',
+                  ),
+                  trailing: DropdownButton<int>(
+                    value: _notifyHour,
+                    underline: const SizedBox.shrink(),
+                    items: [for (var h = 7; h <= 21; h++) h]
+                        .map((h) => DropdownMenuItem(
+                              value: h,
+                              child: Text('${h.toString().padLeft(2, '0')}:00'),
+                            ))
+                        .toList(),
+                    onChanged: (h) async {
+                      if (h == null) return;
+                      await NotificationService.instance.setNotifyHour(h);
+                      if (mounted) setState(() => _notifyHour = h);
+                    },
+                  ),
+                ),
+            ],
           ),
         ),
         const Divider(),
