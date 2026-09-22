@@ -159,6 +159,12 @@ class BackupService {
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
     } catch (_) {}
+    List<Map<String, dynamic>> recurring = [];
+    try {
+      recurring = (await db.query('recurring_transactions'))
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    } catch (_) {}
 
     final notebookCats = prefs
         .getString(_profilePrefKey(profileId, 'notebook_categories'));
@@ -279,6 +285,7 @@ class BackupService {
     backupData['investments'] = investments;
     backupData['udhaar_entries'] = udhaarEntries;
     backupData['udhaar_payments'] = udhaarPayments;
+    backupData['recurring_transactions'] = recurring;
     return backupData;
   }
 
@@ -565,6 +572,7 @@ class BackupService {
       'investments',
       'udhaar_entries',
       'udhaar_payments',
+      'recurring_transactions',
     ]) {
       if (!backup.containsKey(table)) continue;
       for (final raw in backup[table] as List) {

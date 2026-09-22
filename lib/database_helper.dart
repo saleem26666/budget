@@ -67,16 +67,47 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 24,
+      version: 25,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     ).then((db) async {
       await _ensureTransactionColumns(db);
       await _ensureUdhaarTables(db);
+      await _ensureRecurringTable(db);
       await _dedupeNamedRows(db, 'accounts', 'name');
       await _dedupeNamedRows(db, 'categories', 'name');
       return db;
     });
+  }
+
+  Future<void> _ensureRecurringTable(Database db) async {
+    try {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS recurring_transactions(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT,
+          desc TEXT,
+          amount REAL,
+          type TEXT,
+          account TEXT,
+          toAccount TEXT,
+          category TEXT,
+          sub_category TEXT,
+          category_effect TEXT,
+          member_name TEXT,
+          frequency TEXT,
+          interval_n INTEGER,
+          start_date TEXT,
+          next_due TEXT,
+          last_posted TEXT,
+          end_date TEXT,
+          enabled INTEGER,
+          auto_post INTEGER,
+          notify INTEGER,
+          created_at TEXT
+        )
+      ''');
+    } catch (_) {}
   }
 
   /// Additive only — never drops existing tables or rows.
@@ -135,6 +166,10 @@ class DatabaseHelper {
       if (!names.contains('member_name')) {
         await db.execute(
             'ALTER TABLE transactions ADD COLUMN member_name TEXT');
+      }
+      if (!names.contains('recurring_id')) {
+        await db.execute(
+            'ALTER TABLE transactions ADD COLUMN recurring_id INTEGER');
       }
     } catch (_) {}
   }
@@ -326,9 +361,16 @@ class DatabaseHelper {
     });
 
     await _ensureUdhaarTables(db);
+    await _ensureRecurringTable(db);
   }
 
   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 25) {
+      try {
+        await _ensureRecurringTable(db);
+        await _ensureTransactionColumns(db);
+      } catch (_) {}
+    }
     if (oldVersion < 24) {
       try {
         await _ensureUdhaarTables(db);
@@ -683,6 +725,26 @@ class DatabaseHelper {
       insert('udhaar_payments', row);
   Future<int> deleteUdhaarPayment(int id) => delete('udhaar_payments', id);
 
+  // ============== RECURRING ==============
+  Future<List<Map<String, dynamic>>> getRecurringTransactions() async {
+    try {
+      final db = await instance.database;
+      return await db.query(
+        'recurring_transactions',
+        orderBy: 'next_due ASC, id DESC',
+      );
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<int> addRecurringTransaction(Map<String, dynamic> row) =>
+      insert('recurring_transactions', row);
+  Future<int> updateRecurringTransaction(int id, Map<String, dynamic> row) =>
+      update('recurring_transactions', id, row);
+  Future<int> deleteRecurringTransaction(int id) =>
+      delete('recurring_transactions', id);
+
   // ============== SEARCH ==============
   Future<List<Map<String, dynamic>>> searchAllTransactions(String query) async {
     final db = await instance.database;
@@ -713,6 +775,9 @@ class DatabaseHelper {
     } catch (_) {}
     try {
       await db.delete('udhaar_entries');
+    } catch (_) {}
+    try {
+      await db.delete('recurring_transactions');
     } catch (_) {}
   }
 

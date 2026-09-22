@@ -9,18 +9,62 @@ class AppTheme {
   static const Color transfer = Color(0xFF3B82F6);
   static const Color surface = Color(0xFFF8FAFC);
   static const Color card = Colors.white;
+  static const Color surfaceDark = Color(0xFF0F172A);
+  static const Color cardDark = Color(0xFF1E293B);
 
-  static ThemeData get light {
-    final base = ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: primary,
+  static ThemeData get light => _build(
         brightness: Brightness.light,
-        primary: primary,
-        secondary: accent,
-        surface: surface,
-      ),
-      scaffoldBackgroundColor: surface,
+        scheme: ColorScheme.fromSeed(
+          seedColor: primary,
+          brightness: Brightness.light,
+          primary: primary,
+          secondary: accent,
+          surface: surface,
+        ),
+        scaffold: surface,
+        cardColor: card,
+        inputFill: Colors.white,
+        navBackground: card,
+        border: Colors.grey.shade300,
+        divider: Colors.grey.shade200,
+        unselected: Colors.grey.shade600,
+      );
+
+  static ThemeData get dark => _build(
+        brightness: Brightness.dark,
+        scheme: ColorScheme.fromSeed(
+          seedColor: primary,
+          brightness: Brightness.dark,
+          primary: const Color(0xFF818CF8),
+          secondary: accent,
+          surface: cardDark,
+        ),
+        scaffold: surfaceDark,
+        cardColor: cardDark,
+        inputFill: const Color(0xFF1E293B),
+        navBackground: const Color(0xFF111827),
+        border: const Color(0xFF334155),
+        divider: const Color(0xFF1E293B),
+        unselected: const Color(0xFF94A3B8),
+      );
+
+  static ThemeData _build({
+    required Brightness brightness,
+    required ColorScheme scheme,
+    required Color scaffold,
+    required Color cardColor,
+    required Color inputFill,
+    required Color navBackground,
+    required Color border,
+    required Color divider,
+    required Color unselected,
+  }) {
+    final isDark = brightness == Brightness.dark;
+    return ThemeData(
+      useMaterial3: true,
+      brightness: brightness,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: scaffold,
       appBarTheme: const AppBarTheme(
         centerTitle: true,
         elevation: 0,
@@ -35,29 +79,30 @@ class AppTheme {
       ),
       cardTheme: CardThemeData(
         elevation: 0,
-        color: card,
+        color: cardColor,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: Colors.grey.shade200),
+          side: BorderSide(color: border.withValues(alpha: isDark ? 0.8 : 1)),
         ),
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Colors.white,
+        fillColor: inputFill,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.grey.shade300),
+          borderSide: BorderSide(color: border),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.grey.shade300),
+          borderSide: BorderSide(color: border),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: primary, width: 2),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: primary,
@@ -70,35 +115,38 @@ class AppTheme {
       navigationBarTheme: NavigationBarThemeData(
         elevation: 0,
         height: 68,
-        backgroundColor: card,
-        indicatorColor: primary.withValues(alpha: 0.12),
+        backgroundColor: navBackground,
+        indicatorColor: primary.withValues(alpha: isDark ? 0.28 : 0.12),
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return const TextStyle(
+            return TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: primary,
+              color: isDark ? const Color(0xFFA5B4FC) : primary,
             );
           }
-          return TextStyle(fontSize: 12, color: Colors.grey.shade600);
+          return TextStyle(fontSize: 12, color: unselected);
         }),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return const IconThemeData(color: primary, size: 24);
+            return IconThemeData(
+              color: isDark ? const Color(0xFFA5B4FC) : primary,
+              size: 24,
+            );
           }
-          return IconThemeData(color: Colors.grey.shade600, size: 24);
+          return IconThemeData(color: unselected, size: 24);
         }),
       ),
       dialogTheme: DialogThemeData(
+        backgroundColor: cardColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
-      dividerTheme: DividerThemeData(color: Colors.grey.shade200),
+      dividerTheme: DividerThemeData(color: divider),
     );
-    return base;
   }
 
   static List<BoxShadow> get cardShadow => [
