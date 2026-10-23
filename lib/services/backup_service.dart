@@ -147,6 +147,30 @@ class BackupService {
     final investments = (await db.query('investments'))
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
+    List<Map<String, dynamic>> vaultBirthdays = [];
+    List<Map<String, dynamic>> vaultAnniversaries = [];
+    List<Map<String, dynamic>> vaultDocuments = [];
+    List<Map<String, dynamic>> vaultReminders = [];
+    try {
+      vaultBirthdays = (await db.query('vault_birthdays'))
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    } catch (_) {}
+    try {
+      vaultAnniversaries = (await db.query('vault_anniversaries'))
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    } catch (_) {}
+    try {
+      vaultDocuments = (await db.query('vault_documents'))
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    } catch (_) {}
+    try {
+      vaultReminders = (await db.query('vault_reminders'))
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    } catch (_) {}
 
     final notebookCats = prefs
         .getString(_profilePrefKey(profileId, 'notebook_categories'));
@@ -218,6 +242,38 @@ class BackupService {
       await embedImages(doc, 'images', 'images_base64');
     }
 
+    for (final doc in vaultDocuments) {
+      try {
+        final raw = doc['files'];
+        if (raw == null || raw.toString().isEmpty || raw == '[]') continue;
+        final list = jsonDecode(raw.toString());
+        if (list is! List) continue;
+        final encoded = <Map<String, dynamic>>[];
+        for (final e in list) {
+          Map<String, dynamic> map;
+          if (e is String) {
+            map = {'path': e, 'name': e.split(RegExp(r'[\\/]')).last};
+          } else if (e is Map) {
+            map = Map<String, dynamic>.from(e);
+          } else {
+            continue;
+          }
+          final path = (map['path'] ?? '').toString();
+          if (path.isEmpty) continue;
+          final imgFile = File(path);
+          if (!await imgFile.exists()) continue;
+          encoded.add({
+            'name': map['name'] ?? imgFile.uri.pathSegments.last,
+            'kind': map['kind'] ?? 'file',
+            'data': base64Encode(await imgFile.readAsBytes()),
+          });
+        }
+        if (encoded.isNotEmpty) {
+          doc['files_base64'] = jsonEncode(encoded);
+        }
+      } catch (_) {}
+    }
+
     for (final card in cards) {
       try {
         if (card['front_image'] != null &&
@@ -265,6 +321,10 @@ class BackupService {
     backupData['diary'] = diaryEntries;
     backupData['vault_items'] = vaultItems;
     backupData['investments'] = investments;
+    backupData['vault_birthdays'] = vaultBirthdays;
+    backupData['vault_anniversaries'] = vaultAnniversaries;
+    backupData['vault_documents'] = vaultDocuments;
+    backupData['vault_reminders'] = vaultReminders;
     return backupData;
   }
 
@@ -549,6 +609,10 @@ class BackupService {
       'notes',
       'vault_items',
       'investments',
+      'vault_birthdays',
+      'vault_anniversaries',
+      'vault_documents',
+      'vault_reminders',
     ]) {
       if (!backup.containsKey(table)) continue;
       for (final raw in backup[table] as List) {
@@ -585,6 +649,29 @@ class BackupService {
               item['image_path'] = imgFile.path;
             }
             item.remove('image_base64');
+          } else if (table == 'vault_documents') {
+            if (item['files_base64'] != null) {
+              try {
+                final encoded =
+                    List<dynamic>.from(jsonDecode(item['files_base64'].toString()));
+                final restored = <Map<String, dynamic>>[];
+                for (var i = 0; i < encoded.length; i++) {
+                  final map = Map<String, dynamic>.from(encoded[i] as Map);
+                  final name = (map['name'] ?? 'file_$i').toString();
+                  final safe = name.replaceAll(RegExp(r'[\\/]'), '_');
+                  final imgFile = File(
+                      '${imagesDir.path}/imp_doc_${DateTime.now().millisecondsSinceEpoch}_${i}_$safe');
+                  await imgFile.writeAsBytes(base64Decode(map['data'].toString()));
+                  restored.add({
+                    'path': imgFile.path,
+                    'name': name,
+                    'kind': map['kind'] ?? 'file',
+                  });
+                }
+                item['files'] = jsonEncode(restored);
+              } catch (_) {}
+            }
+            item.remove('files_base64');
           }
           item.remove('id');
           await DatabaseHelper.instance.insert(table, item);

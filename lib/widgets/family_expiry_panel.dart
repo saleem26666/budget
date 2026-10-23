@@ -8,13 +8,15 @@ class FamilyExpiryItem {
   final String memberName;
   final String docType;
   final DateTime expiry;
-  final String status; // expired | soon | ok
+  final String status; // expired | soon | today | ok
+  final String kind; // expiry | birthday | reminder
 
   FamilyExpiryItem({
     required this.memberName,
     required this.docType,
     required this.expiry,
     required this.status,
+    this.kind = 'expiry',
   });
 }
 
@@ -81,6 +83,76 @@ class FamilyExpiryCenter {
       ));
     }
 
+    try {
+      final birthdays = await DatabaseHelper.instance.getVaultBirthdays();
+      final today = DateTime(now.year, now.month, now.day);
+      for (final b in birthdays) {
+        final raw = b['birth_date']?.toString() ?? '';
+        final birth = DateTime.tryParse(raw);
+        if (birth == null) continue;
+        var next = DateTime(today.year, birth.month, birth.day);
+        if (next.isBefore(today)) {
+          next = DateTime(today.year + 1, birth.month, birth.day);
+        }
+        final remindDays = int.tryParse('${b['remind_days'] ?? 7}') ?? 7;
+        final days = next.difference(today).inDays;
+        if (days > remindDays && days > 0) continue;
+        items.add(FamilyExpiryItem(
+          memberName: (b['name'] ?? 'Someone').toString(),
+          docType: days == 0 ? 'Birthday today' : 'Birthday in $days days',
+          expiry: next,
+          status: days == 0 ? 'today' : 'soon',
+          kind: 'birthday',
+        ));
+      }
+    } catch (_) {}
+
+    try {
+      final anniversaries =
+          await DatabaseHelper.instance.getVaultAnniversaries();
+      final today = DateTime(now.year, now.month, now.day);
+      for (final a in anniversaries) {
+        final raw = a['marriage_date']?.toString() ?? '';
+        final married = DateTime.tryParse(raw);
+        if (married == null) continue;
+        var next = DateTime(today.year, married.month, married.day);
+        if (next.isBefore(today)) {
+          next = DateTime(today.year + 1, married.month, married.day);
+        }
+        final remindDays = int.tryParse('${a['remind_days'] ?? 7}') ?? 7;
+        final days = next.difference(today).inDays;
+        if (days > remindDays && days > 0) continue;
+        items.add(FamilyExpiryItem(
+          memberName: (a['name'] ?? 'Anniversary').toString(),
+          docType: days == 0
+              ? 'Anniversary today'
+              : 'Anniversary in $days days',
+          expiry: next,
+          status: days == 0 ? 'today' : 'soon',
+          kind: 'anniversary',
+        ));
+      }
+    } catch (_) {}
+
+    try {
+      final reminders = await DatabaseHelper.instance.getVaultReminders();
+      final horizon = now.add(const Duration(days: 7));
+      for (final r in reminders) {
+        if ((r['done'] ?? 0) == 1) continue;
+        final when = DateTime.tryParse(r['remind_at']?.toString() ?? '');
+        if (when == null) continue;
+        if (when.isAfter(horizon)) continue;
+        final overdue = when.isBefore(now);
+        items.add(FamilyExpiryItem(
+          memberName: (r['title'] ?? 'Reminder').toString(),
+          docType: overdue ? 'Reminder overdue' : 'Reminder',
+          expiry: when,
+          status: overdue ? 'expired' : 'soon',
+          kind: 'reminder',
+        ));
+      }
+    } catch (_) {}
+
     items.sort((a, b) => a.expiry.compareTo(b.expiry));
     return items;
   }
@@ -102,12 +174,12 @@ class FamilyExpiryCenter {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Family expiry center',
+                const Text('Vault alerts',
                     style:
                         TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
                 Text(
-                  'CNIC, passports, cards & docs expiring in 30 days',
+                  'Expiries, birthdays and reminders',
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
                 const SizedBox(height: 12),
@@ -115,7 +187,7 @@ class FamilyExpiryCenter {
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 24),
                     child: Center(
-                      child: Text('No upcoming expiries — you are clear ✅'),
+                      child: Text('No upcoming alerts — you are clear ✅'),
                     ),
                   )
                 else
@@ -128,18 +200,38 @@ class FamilyExpiryCenter {
                         final it = items[i];
                         final color = it.status == 'expired'
                             ? AppTheme.expense
-                            : Colors.orange.shade800;
+                            : (it.status == 'today'
+                                ? const Color(0xFFEC4899)
+                                : Colors.orange.shade800);
+                        IconData icon = Icons.schedule_rounded;
+                        if (it.kind == 'birthday') {
+                          icon = Icons.cake_rounded;
+                        } else if (it.kind == 'anniversary') {
+                          icon = Icons.favorite_rounded;
+                        } else if (it.kind == 'reminder') {
+                          icon = it.status == 'expired'
+                              ? Icons.notification_important_rounded
+                              : Icons.notifications_active_rounded;
+                        } else if (it.status == 'expired') {
+                          icon = Icons.error_rounded;
+                        }
+                        String whenLabel;
+                        if (it.kind == 'birthday' || it.kind == 'anniversary') {
+                          whenLabel = it.status == 'today'
+                              ? 'Today'
+                              : DateFormat('dd MMM').format(it.expiry);
+                        } else if (it.kind == 'reminder') {
+                          whenLabel = DateFormat('dd MMM · HH:mm').format(it.expiry);
+                        } else {
+                          whenLabel =
+                              '${it.status == 'expired' ? 'Expired' : 'Due'} ${DateFormat('dd MMM yyyy').format(it.expiry)}';
+                        }
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
-                          leading: Icon(
-                            it.status == 'expired'
-                                ? Icons.error_rounded
-                                : Icons.schedule_rounded,
-                            color: color,
-                          ),
+                          leading: Icon(icon, color: color),
                           title: Text('${it.memberName} · ${it.docType}'),
                           subtitle: Text(
-                            '${it.status == 'expired' ? 'Expired' : 'Due'} ${DateFormat('dd MMM yyyy').format(it.expiry)}',
+                            whenLabel,
                             style: TextStyle(color: color),
                           ),
                         );

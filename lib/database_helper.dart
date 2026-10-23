@@ -67,11 +67,12 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 23,
+      version: 25,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     ).then((db) async {
       await _ensureTransactionColumns(db);
+      await _ensureVaultLifeTables(db);
       await _dedupeNamedRows(db, 'accounts', 'name');
       await _dedupeNamedRows(db, 'categories', 'name');
       return db;
@@ -242,6 +243,8 @@ class DatabaseHelper {
       )
     ''');
 
+    await _ensureVaultLifeTables(db);
+
     // Investment portfolio holdings
     await db.execute('''
       CREATE TABLE investments(
@@ -291,7 +294,60 @@ class DatabaseHelper {
     });
   }
 
+  Future<void> _ensureVaultLifeTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS vault_birthdays(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        relation TEXT,
+        birth_date TEXT,
+        notes TEXT,
+        remind_days INTEGER,
+        created_at TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS vault_anniversaries(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        marriage_date TEXT,
+        notes TEXT,
+        remind_days INTEGER,
+        created_at TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS vault_documents(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        notes TEXT,
+        files TEXT,
+        created_at TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS vault_reminders(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        notes TEXT,
+        remind_at TEXT,
+        done INTEGER,
+        created_at TEXT
+      )
+    ''');
+  }
+
   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 25) {
+      try {
+        await _ensureVaultLifeTables(db);
+      } catch (_) {}
+    }
+    if (oldVersion < 24) {
+      try {
+        await _ensureVaultLifeTables(db);
+      } catch (_) {}
+    }
     if (oldVersion < 23) {
       try {
         final cols = await db.rawQuery('PRAGMA table_info(family_vault)');
@@ -444,7 +500,11 @@ class DatabaseHelper {
         await count('family_vault') == 0 &&
         await count('cards') == 0 &&
         await count('business_cards') == 0 &&
-        await count('investments') == 0;
+        await count('investments') == 0 &&
+        await count('vault_birthdays') == 0 &&
+        await count('vault_anniversaries') == 0 &&
+        await count('vault_documents') == 0 &&
+        await count('vault_reminders') == 0;
   }
 
   // ============== GENERIC METHODS ==============
@@ -579,6 +639,40 @@ class DatabaseHelper {
     );
   }
 
+  // ============== VAULT BIRTHDAYS / DOCS / REMINDERS ==============
+  Future<List<Map<String, dynamic>>> getVaultBirthdays() async =>
+      queryAllRows('vault_birthdays');
+  Future<int> addVaultBirthday(Map<String, dynamic> row) =>
+      insert('vault_birthdays', row);
+  Future<int> updateVaultBirthday(int id, Map<String, dynamic> row) =>
+      update('vault_birthdays', id, row);
+  Future<int> deleteVaultBirthday(int id) => delete('vault_birthdays', id);
+
+  Future<List<Map<String, dynamic>>> getVaultAnniversaries() async =>
+      queryAllRows('vault_anniversaries');
+  Future<int> addVaultAnniversary(Map<String, dynamic> row) =>
+      insert('vault_anniversaries', row);
+  Future<int> updateVaultAnniversary(int id, Map<String, dynamic> row) =>
+      update('vault_anniversaries', id, row);
+  Future<int> deleteVaultAnniversary(int id) =>
+      delete('vault_anniversaries', id);
+
+  Future<List<Map<String, dynamic>>> getVaultDocuments() async =>
+      queryAllRows('vault_documents');
+  Future<int> addVaultDocument(Map<String, dynamic> row) =>
+      insert('vault_documents', row);
+  Future<int> updateVaultDocument(int id, Map<String, dynamic> row) =>
+      update('vault_documents', id, row);
+  Future<int> deleteVaultDocument(int id) => delete('vault_documents', id);
+
+  Future<List<Map<String, dynamic>>> getVaultReminders() async =>
+      queryAllRows('vault_reminders');
+  Future<int> addVaultReminder(Map<String, dynamic> row) =>
+      insert('vault_reminders', row);
+  Future<int> updateVaultReminder(int id, Map<String, dynamic> row) =>
+      update('vault_reminders', id, row);
+  Future<int> deleteVaultReminder(int id) => delete('vault_reminders', id);
+
   // ============== VAULT ITEMS ==============
   Future<List<Map<String, dynamic>>> getVaultItems() async =>
       queryAllRows('vault_items');
@@ -625,6 +719,18 @@ class DatabaseHelper {
     await db.delete('diary');
     await db.delete('vault_items');
     await db.delete('investments');
+    try {
+      await db.delete('vault_birthdays');
+    } catch (_) {}
+    try {
+      await db.delete('vault_anniversaries');
+    } catch (_) {}
+    try {
+      await db.delete('vault_documents');
+    } catch (_) {}
+    try {
+      await db.delete('vault_reminders');
+    } catch (_) {}
   }
 
   Future<void> clearTransactionsOnly() async {

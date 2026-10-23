@@ -11,6 +11,7 @@ import 'utils/document_scan_helper.dart';
 import 'utils/image_helper.dart';
 import 'utils/vault_pin_prefs.dart';
 import 'vault_family_pages.dart';
+import 'vault_life_pages.dart';
 import 'business_cards_screen.dart';
 import 'widgets/family_expiry_panel.dart';
 
@@ -43,6 +44,10 @@ class _VaultScreenState extends State<VaultScreen>
   List<Map<String, dynamic>> _cards = [];
   List<Map<String, dynamic>> _familyDocs = [];
   List<Map<String, dynamic>> _businessCards = [];
+  List<Map<String, dynamic>> _birthdays = [];
+  List<Map<String, dynamic>> _anniversaries = [];
+  List<Map<String, dynamic>> _importantDocs = [];
+  List<Map<String, dynamic>> _reminders = [];
 
   bool _isLoading = true;
   bool _isLocked = false;
@@ -92,6 +97,18 @@ class _VaultScreenState extends State<VaultScreen>
       _cards = await DatabaseHelper.instance.getCards();
       _familyDocs = await DatabaseHelper.instance.queryAllRows('family_vault');
       _businessCards = await DatabaseHelper.instance.getBusinessCards();
+      try {
+        _birthdays = await DatabaseHelper.instance.getVaultBirthdays();
+        _anniversaries = await DatabaseHelper.instance.getVaultAnniversaries();
+        _importantDocs = await DatabaseHelper.instance.getVaultDocuments();
+        _reminders = await DatabaseHelper.instance.getVaultReminders();
+      } catch (e) {
+        debugPrint("Vault life tables: $e");
+        _birthdays = [];
+        _anniversaries = [];
+        _importantDocs = [];
+        _reminders = [];
+      }
     } catch (e) {
       debugPrint("Error loading vault data: $e");
     } finally {
@@ -822,6 +839,34 @@ class _VaultScreenState extends State<VaultScreen>
     ).then((_) => _loadVaultData());
   }
 
+  void _openBirthdaysPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const BirthdayRemindersPage()),
+    ).then((_) => _loadVaultData());
+  }
+
+  void _openAnniversariesPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const MarriageAnniversaryPage()),
+    ).then((_) => _loadVaultData());
+  }
+
+  void _openImportantDocumentsPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ImportantDocumentsPage()),
+    ).then((_) => _loadVaultData());
+  }
+
+  void _openImportantRemindersPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ImportantRemindersPage()),
+    ).then((_) => _loadVaultData());
+  }
+
   // Legacy sheet kept unused — superseded by FamilyVaultHubPage.
   void _openFamilyVaultSheet() => _openFamilyVaultPage();
 
@@ -1318,7 +1363,7 @@ class _VaultScreenState extends State<VaultScreen>
                                   ),
                                 ),
                                 Text(
-                                  "Passwords, cards & family docs",
+                                  "Birthdays, documents & reminders",
                                   style: TextStyle(
                                     color: Color(0xFF64748B),
                                     fontSize: 12,
@@ -1382,6 +1427,74 @@ class _VaultScreenState extends State<VaultScreen>
                       ),
                     ),
                     const SliverToBoxAdapter(child: SizedBox(height: 28)),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: const Text(
+                          "REMINDERS & FILES",
+                          style: TextStyle(
+                            color: AppColors.textMuted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 2,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SliverToBoxAdapter(child: SizedBox(height: 14)),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: _buildDashboardFolder(
+                          title: "Birthday Reminders",
+                          subtitle: "Family & friends — never miss a date",
+                          icon: Icons.cake_rounded,
+                          accent: const Color(0xFFEC4899),
+                          count: _birthdays.length,
+                          onTap: _openBirthdaysPage,
+                        ),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: _buildDashboardFolder(
+                          title: "Marriage Anniversary",
+                          subtitle: "Wedding dates & year milestones",
+                          icon: Icons.favorite_rounded,
+                          accent: const Color(0xFFBE185D),
+                          count: _anniversaries.length,
+                          onTap: _openAnniversariesPage,
+                        ),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: _buildDashboardFolder(
+                          title: "Important Documents",
+                          subtitle: "Add from camera or any file",
+                          icon: Icons.folder_special_rounded,
+                          accent: const Color(0xFF7C3AED),
+                          count: _importantDocs.length,
+                          onTap: _openImportantDocumentsPage,
+                        ),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: _buildDashboardFolder(
+                          title: "Important Reminders",
+                          subtitle: "Bills, renewals & to-dos",
+                          icon: Icons.notification_important_rounded,
+                          accent: const Color(0xFF0EA5E9),
+                          count: _reminders.where((e) => (e['done'] ?? 0) != 1).length,
+                          onTap: _openImportantRemindersPage,
+                        ),
+                      ),
+                    ),
+                    const SliverToBoxAdapter(child: SizedBox(height: 22)),
                     SliverToBoxAdapter(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
